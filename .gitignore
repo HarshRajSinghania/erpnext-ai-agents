@@ -1,0 +1,31 @@
+# secrets: never commit
+.env
+.env.*
+!.env.example
+
+# local state: databases, generated test data, logs
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+tools/testdata/manifest.jsonl
+tools/testdata/days_state.json
+tools/e2e/last_run.log
+
+# tooling and caches
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+.idea/
+
+# design mock-ups: origin and licence not decided yet (remove this line once they are)
+ui-design/

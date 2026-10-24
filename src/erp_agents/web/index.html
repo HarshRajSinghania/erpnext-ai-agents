@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Assistant</title>
+<style>
+:root{--bg:#F6F4EE;--card:#fff;--line:#E3DFD3;--line2:#EFECE3;--ink:#1B2420;--muted:#56625B;--green:#0E6B58;--green-d:#0A5546;--green-soft:#E1F0EA;--red:#B3361B;--red-soft:#FCE8E2;--amber:#7A4E00;--amber-soft:#FBEFCF;--blue-soft:#E4EEF9;--grey-soft:#ECE9E0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Figtree","Segoe UI",system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.5}
+a{color:var(--green-d)}a:hover{color:var(--green)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid #7FB8A8;outline-offset:2px}
+h1,h2,h3,p{margin:0}
+.num{font-variant-numeric:tabular-nums}
+[hidden]{display:none!important}
+.shell{display:flex;flex-wrap:wrap;min-height:100vh}
+.side{flex:0 0 272px;background:#fff;border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;gap:20px}
+.main{flex:999 1 560px;min-width:0;max-width:1280px;padding:32px 40px 64px;display:flex;flex-direction:column;gap:24px}
+.brand{display:flex;align-items:center;gap:12px;padding:0 8px}
+.logo{width:40px;height:40px;border-radius:12px;background:var(--green);display:flex;align-items:center;justify-content:center;flex:none}
+.brand b{display:block;font-size:18px;line-height:1.2}.brand small{color:var(--muted);font-size:13px}
+.nav{display:flex;flex-direction:column;gap:4px}
+.nav button{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:0;background:transparent;color:var(--ink);text-align:left;font-weight:700;cursor:pointer;width:100%}
+.nav button small{display:block;font-weight:400;color:var(--muted);font-size:13px;line-height:1.3}
+.nav button:hover{background:#F3F1EA}
+.nav button.on{background:var(--green-soft);color:var(--green-d)}.nav button.on small{color:var(--green-d)}
+.nav .count{margin-left:auto;background:var(--red);color:#fff;border-radius:999px;font-size:13px;font-weight:800;min-width:26px;text-align:center;padding:1px 8px}
+.side-foot{margin-top:auto;border-top:1px solid var(--line2);padding:16px 8px 0;display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
+.side-foot .row{display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;background:#1E8E5A;flex:none}.dot.bad{background:var(--red)}.dot.grey{background:#9AA29D}
+.me{margin-top:10px;padding:12px 14px;border-radius:14px;background:var(--bg);color:var(--ink)}
+.me b{display:block}
+.subnav{display:flex;flex-direction:column;gap:4px}
+.subnav button{display:block;text-align:left;width:100%;padding:12px 14px;border-radius:12px;color:var(--ink);font-weight:700;border:1.5px solid transparent;background:transparent;cursor:pointer}
+.subnav button small{display:block;font-weight:400;color:var(--muted);font-size:13px;line-height:1.3}
+.subnav button:hover{background:#F3F1EA}
+.subnav button.on{background:#fff;border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
+@media(max-width:820px){
+  .side{flex:1 1 100%;border-right:0;border-bottom:1px solid var(--line);padding:16px}
+  .nav{flex-direction:row;overflow-x:auto;padding-bottom:4px}.nav button{flex:none;width:auto}.nav button small{display:none}
+  .side-foot .row,.side-foot>div:not(.me){display:none}
+  .main{padding:20px 16px 48px}.h1{font-size:26px!important}
+  .subnav{flex-direction:row;overflow-x:auto}.subnav button{flex:none;width:auto}.subnav button small{display:none}
+}
+@media(max-width:520px){
+  .req{padding:18px}.req .btns .btn{flex:1 1 100%}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}.fact b{font-size:20px}
+  .card-h,.card-b{padding-inline:18px}.savebar .btns{width:100%}.savebar .btns .btn{flex:1}
+}
+.topbar{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-between}
+.h1{font-size:32px;line-height:1.2;font-weight:800;letter-spacing:-.01em}
+.lead{color:var(--muted);font-size:17px;margin-top:6px;max-width:680px}
+.h2{font-size:20px;font-weight:800;line-height:1.3}.h3{font-size:17px;font-weight:800;line-height:1.3}
+.muted{color:var(--muted)}.small{font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px}
+.card-h{padding:20px 24px;border-bottom:1px solid var(--line2);display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.card-b{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
+.empty{padding:28px 24px;color:var(--muted)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tab{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border-radius:999px;border:1.5px solid #CFC9B8;background:#fff;font-weight:700;color:var(--ink);cursor:pointer}
+.tab.on{background:var(--ink);border-color:var(--ink);color:#fff}.tab span{font-weight:600;opacity:.75}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;font-weight:700;font-size:14px;white-space:nowrap}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.urgent{background:var(--red-soft);color:#8E2A12}.pill.soon{background:var(--amber-soft);color:var(--amber)}.pill.ok{background:var(--green-soft);color:var(--green-d)}
+.pill.off{background:var(--grey-soft);color:var(--muted)}.pill.info{background:var(--blue-soft);color:#174C86}
+.btn{min-height:44px;padding:0 20px;border-radius:12px;border:1.5px solid #CFC9B8;background:#fff;color:var(--ink);font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+.btn:hover{background:#F8F6F0}.btn.primary{background:var(--green);border-color:var(--green);color:#fff}.btn.primary:hover{background:var(--green-d)}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--green-d)}.btn.danger{color:var(--red)}.btn.sm{min-height:36px;padding:0 14px;font-size:14px}
+.btn[disabled]{opacity:.5;cursor:default}.btns{display:flex;flex-wrap:wrap;gap:10px}
+.req{padding:24px;display:flex;flex-direction:column;gap:16px}.req+.req{border-top:1px solid var(--line2)}
+.req-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.said{font-size:18px;line-height:1.55}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.fact{background:var(--bg);border-radius:14px;padding:12px 16px}.fact b{display:block;font-size:24px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}.fact span{font-size:14px;color:var(--muted)}
+.why{background:#FAF9F5;border:1px solid var(--line2);border-radius:14px;padding:14px 18px}.why>b{display:block;margin-bottom:4px}
+.why ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.ask{border-top:1px dashed var(--line);padding-top:14px;display:flex;flex-direction:column;gap:8px}
+.ask-row{display:flex;flex-wrap:wrap;gap:8px}.ask-row .in{flex:1 1 280px}
+.answer{background:var(--blue-soft);border-radius:14px;padding:12px 16px}
+.scroll{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;font-size:14px;color:var(--muted);font-weight:700;padding:10px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:14px 16px;border-bottom:1px solid var(--line2);vertical-align:top}.tbl tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}.tbl small{display:block;color:var(--muted);font-size:13px;line-height:1.35}.tbl tr.best td{background:#F2F8F5}
+.in{min-height:44px;padding:0 12px;border:1.5px solid #BDB7A4;border-radius:10px;background:#fff;font:inherit}
+.in.short{width:96px}.in.changed{border-color:var(--green);background:var(--green-soft)}
+textarea.in{padding:10px 12px;min-height:84px;width:100%}
+.rule{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:17px;line-height:1.7}
+.rule-note{color:var(--muted);font-size:14px;margin:-6px 0 0}
+.field{display:flex;flex-direction:column;gap:6px}.field>label,.label{font-weight:700}.field small{color:var(--muted);font-size:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+.check{display:flex;gap:12px;align-items:flex-start}.check input{width:22px;height:22px;margin-top:2px;accent-color:var(--green);flex:none}
+.check b{display:block}.check small{display:block;color:var(--muted);font-size:14px}
+.segb{display:inline-flex;border:1.5px solid #BDB7A4;border-radius:10px;overflow:hidden;flex:none}
+.segb button{border:0;background:#fff;padding:0 14px;min-height:40px;font-weight:700;font-size:14px;cursor:pointer}
+.segb button+button{border-left:1.5px solid #BDB7A4}.segb button.on{background:var(--green);color:#fff}
+.stockrow{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line2)}
+.stockrow .nm{flex:1 1 260px}.stockrow .nm small{display:block;color:var(--muted);font-size:14px}
+.formula{background:var(--bg);border-radius:14px;padding:14px 18px;line-height:1.7}
+.savebar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 20px;position:sticky;bottom:12px}
+.callout{background:var(--green-soft);border-radius:14px;padding:14px 18px;color:#0B4638}
+.callout.warn{background:var(--amber-soft);color:#5C3A00}.callout.bad{background:var(--red-soft);color:#7A2410}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--grey-soft)}
+.range{width:100%;accent-color:var(--green)}
+.tl-item{display:flex;gap:16px;padding:18px 24px;border-top:1px solid var(--line2)}.tl-item:first-child{border-top:0}
+.tl-dot{width:12px;height:12px;border-radius:50%;margin-top:7px;flex:none;background:var(--green)}
+.tl-dot.warn{background:#C98A00}.tl-dot.bad{background:var(--red)}.tl-dot.off{background:#9AA29D}.tl-when{color:var(--muted);font-size:14px}
+.sub-step{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+fieldset.lock{border:0;padding:0;margin:0;min-width:0}
+pre.reason{white-space:pre-wrap;margin:10px 0 0;font:inherit;background:#FAF9F5;border:1px solid var(--line2);border-radius:14px;padding:12px 16px}
+.msgs{display:flex;flex-direction:column;gap:18px}
+.msg{max-width:min(900px,100%);display:flex;flex-direction:column;gap:10px}.msg.me{align-self:flex-end;align-items:flex-end}
+.bubble{padding:12px 16px;border-radius:18px;line-height:1.6;white-space:pre-line}
+.msg.me .bubble{background:var(--green);color:#fff;border-bottom-right-radius:6px}
+.msg.bot .bubble{background:#fff;border:1px solid var(--line);border-bottom-left-radius:6px}
+.msg.bot .bubble.err{background:var(--red-soft);border-color:#E9B8AA;color:#7A2410}
+.kvgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.kvgrid .kv{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 14px}.kv span{font-size:13px;color:var(--muted);display:block}.kv b{font-size:18px;line-height:1.3}
+.chipbtn{border:1.5px solid #CFC9B8;background:#fff;border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:15px}.chipbtn:hover{background:#F8F6F0}
+.askbar{position:sticky;bottom:12px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;box-shadow:0 6px 24px rgba(27,36,32,.08)}
+.askbar .in{flex:1 1 280px}
+.typing{color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;max-width:90vw;z-index:30}
+.toast.err{background:var(--red)}
+.loginwrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px}
+.loginbox{width:min(440px,100%);display:flex;flex-direction:column;gap:20px}
+.logincard{padding:28px;display:flex;flex-direction:column;gap:18px}
+</style>
+</head>
+<body>
+
+<div id="login" class="loginwrap" hidden></div>
+
+<div class="shell" id="app" hidden>
+  <aside class="side">
+    <div class="brand">
+      <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></div>
+      <div><b>Stock Assistant</b><small>for your ERPNext</small></div>
+    </div>
+    <nav class="nav" aria-label="Main menu" id="nav"></nav>
+    <div class="side-foot">
+      <div class="row"><span class="dot grey" id="erpDot"></span><span id="erpText">Checking ERPNext…</span></div>
+      <div class="row"><span class="dot grey" id="waDot"></span><span id="waText">&nbsp;</span></div>
+      <div class="me"><b id="meName">&nbsp;</b><span class="small muted" id="meLevel"></span><br><a href="#" id="signout" style="display:inline-block;margin-top:6px;font-weight:700">Sign out</a></div>
+    </div>
+  </aside>
+  <main class="main" id="view"></main>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const state = { view: "ok", cfg: "reorder", okTab: "all", stockTab: "all", find: "", histTab: "all", me: null, mode: { erpnext: false, access_key: true },
+  items: [], global: null, system: null, schema: null, pending: [], proc: null, opts: null, asst: null, cal: null, basis: null, chat: [] };
+try { state.chat = JSON.parse(sessionStorage.getItem("chat") || "[]"); } catch (e) { state.chat = []; }
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function fmt(n, d = 1) { return n == null ? "–" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
+function money(n) { return n == null ? "–" : "₹" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function toast(msg, err) { const t = $("#toast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 5000); }
+const when = iso => iso ? String(iso).slice(0, 16).replace("T", " ") : "";
+const can = cap => !!(state.me && (state.me.caps || []).includes(cap));
+
+// ---------------------------------------------------------------- talking to the server
+class ApiError extends Error { constructor(status, detail) { super(typeof detail === "string" ? detail : (detail && detail.message) || "Request failed (" + status + ")"); this.status = status; this.code = detail && detail.code; } }
+async function api(method, path, body) {
+  const tok = sessionStorage.getItem("tok");
+  const res = await fetch(path, { method, headers: { ...(tok ? { "Authorization": "Bearer " + tok } : {}), ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && tok && !path.startsWith("/api/v1/auth/")) { endSession("Your session ended. Please sign in again."); throw new ApiError(401, "Sign in required"); }
+  if (!res.ok) throw new ApiError(res.status, data.detail);
+  return data;
+}
+function endSession(note) { sessionStorage.removeItem("tok"); sessionStorage.removeItem("chat"); state.chat = []; state.me = null; showLogin("form", { note }); }
+
+// ---------------------------------------------------------------- sign in (through ERPNext)
+function showLogin(view, info = {}) {
+  $("#app").hidden = true;
+  const el = $("#login"); el.hidden = false;
+  const brand = `<div class="brand" style="padding:0"><div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></div><div><b>Stock Assistant</b><small>for your ERPNext</small></div></div>`;
+  let card = "";
+  if (view === "form" && state.mode.erpnext) {
+    card = `<div><h1 class="h1" style="font-size:26px">Sign in</h1><p class="lead" style="font-size:16px">Use the same username and password as ERPNext.</p></div>
+      ${info.note ? `<div class="callout warn" role="alert">${esc(info.note)}</div>` : ""}
+      ${info.error ? `<div class="callout bad" role="alert">${info.error}</div>` : ""}
+      <form id="lf" style="display:flex;flex-direction:column;gap:18px">
+        <div class="field"><label for="lu">Username or email</label><input id="lu" class="in" value="${esc(info.user || "")}" autocomplete="username" required></div>
+        <div class="field"><label for="lp">Password</label><div style="display:flex;gap:8px"><input id="lp" class="in" type="password" style="flex:1;min-width:0" autocomplete="current-password" required><button type="button" class="btn" id="lshow">Show</button></div>
+          <small>Your password goes straight to ERPNext. The Stock Assistant never stores it.</small></div>
+        <button class="btn primary" type="submit" id="lgo">Sign in</button>
+      </form>
+      ${state.mode.access_key ? `<p class="small muted">Administrator, on the server: <a href="#" id="tokey">use the access key</a></p>` : ""}
+      <p class="small muted" style="border-top:1px solid var(--line2);padding-top:14px">Forgot your password? Reset it in ERPNext.</p>`;
+  } else if (view === "form" || view === "key") {
+    card = `<div><h1 class="h1" style="font-size:26px">Enter your access key</h1><p class="lead" style="font-size:16px">${state.mode.erpnext ? "This is the emergency way in, from your Stock Assistant setup file." : "Enter the access key from your Stock Assistant setup file."}</p></div>
+      ${info.error ? `<div class="callout bad" role="alert">${info.error}</div>` : ""}
+      <form id="kf" style="display:flex;flex-direction:column;gap:18px"><div class="field"><label for="kk">Access key</label><input id="kk" class="in" type="password" autocomplete="off" required><small>It is only remembered until you close this browser tab.</small></div>
+      <button class="btn primary" type="submit">Open the Stock Assistant</button></form>
+      ${state.mode.erpnext ? `<p class="small"><a href="#" id="tologin">Sign in with ERPNext instead</a></p>` : ""}`;
+  } else if (view === "code") {
+    card = `<div><h1 class="h1" style="font-size:26px">Enter your verification code</h1><p class="lead" style="font-size:16px">${esc(info.prompt || "ERPNext asks for a second step on your account. Type the 6-digit code from your authenticator app.")}</p></div>
+      ${info.error ? `<div class="callout bad" role="alert">${info.error}</div>` : ""}
+      <form id="cf" style="display:flex;flex-direction:column;gap:18px"><div class="field"><label for="cc">6-digit code</label><input id="cc" class="in num" inputmode="numeric" maxlength="12" autocomplete="one-time-code" style="letter-spacing:.3em;font-size:22px;text-align:center" required><small>The code changes every 30 seconds.</small></div>
+      <button class="btn primary" type="submit">Verify and sign in</button></form><p class="small"><a href="#" id="tologin">Use a different account</a></p>`;
+  } else if (view === "noaccess") {
+    card = `<div><span class="pill soon">Signed in to ERPNext</span><h1 class="h1" style="font-size:26px;margin-top:12px">You do not have access here yet</h1>
+      <p class="lead" style="font-size:16px">${esc(info.message || "Your ERPNext account does not have a role that can use the Stock Assistant.")}</p></div>
+      <div class="why"><b>What to do</b><p>Ask your ERPNext administrator to give you a role that can read Items (to look at stock), and one that can create Purchase Orders (to approve orders). For example Stock User or Purchase User, and Purchase Manager.</p></div>
+      <div class="btns"><button class="btn primary" id="tologin">Sign in as someone else</button></div>`;
+  } else if (view === "down") {
+    card = `<div><h1 class="h1" style="font-size:26px">Cannot reach ERPNext</h1><p class="lead" style="font-size:16px">The Stock Assistant checks your login with ERPNext, so nobody can sign in until ERPNext is back.</p></div>
+      <div class="why"><b>Things to check</b><ul><li>ERPNext is running. If you use Docker, all the ERPNext containers should be up.</li><li>The ERPNext address in the Stock Assistant setup is right.</li><li>This computer can open ERPNext in a browser.</li></ul></div>
+      <div class="btns"><button class="btn primary" id="tologin">Try again</button></div>`;
+  }
+  el.innerHTML = `<div class="loginbox">${brand}<div class="card logincard">${card}</div></div>`;
+  $("#lshow") && $("#lshow").addEventListener("click", () => { const p = $("#lp"); p.type = p.type === "password" ? "text" : "password"; $("#lshow").textContent = p.type === "password" ? "Show" : "Hide"; });
+  $("#tokey") && $("#tokey").addEventListener("click", e => { e.preventDefault(); showLogin("key"); });
+  $("#tologin") && $("#tologin").addEventListener("click", e => { e.preventDefault(); showLogin("form"); });
+  const first = $("#lu") || $("#kk") || $("#cc"); if (first) first.focus();
+  if ($("#lf")) $("#lf").addEventListener("submit", async e => {
+    e.preventDefault(); const user = $("#lu").value.trim(); $("#lgo").disabled = true; $("#lgo").textContent = "Signing in…";
+    try { await finishLogin(await api("POST", "/api/v1/auth/login", { username: user, password: $("#lp").value }), user); }
+    catch (err) { loginProblem(err, user); }
+  });
+  if ($("#cf")) $("#cf").addEventListener("submit", async e => {
+    e.preventDefault();
+    try { await finishLogin(await api("POST", "/api/v1/auth/verify", { tmp_id: info.tmp_id, otp: $("#cc").value }), ""); }
+    catch (err) { if (err.code === "verification_failed" && info.tmp_id) showLogin("code", { ...info, error: "That code was not right. Try the next one." }); else loginProblem(err, ""); }
+  });
+  if ($("#kf")) $("#kf").addEventListener("submit", async e => {
+    e.preventDefault(); sessionStorage.setItem("tok", $("#kk").value.trim());
+    try { state.me = await api("GET", "/api/v1/auth/me"); boot(); }
+    catch (err) { sessionStorage.removeItem("tok"); showLogin("key", { error: "That access key was not accepted." }); }
+  });
+}
+async function finishLogin(res, user) {
+  if (res.status === "verification") { showLogin("code", { tmp_id: res.tmp_id, prompt: res.prompt }); return; }
+  sessionStorage.setItem("tok", res.token); state.me = res; boot();
+}
+function loginProblem(err, user) {
+  if (err.code === "invalid") showLogin("form", { user, error: "<b>That username or password is not right.</b> Check them and try again. They are the ones you use to sign in to ERPNext. ERPNext may pause sign-in for a minute after several wrong tries." });
+  else if (err.code === "locked") showLogin("form", { user, error: "<b>This ERPNext account is locked for now.</b> Wait a few minutes, or ask your ERPNext administrator." });
+  else if (err.code === "throttled") showLogin("form", { user, error: "<b>Too many wrong tries.</b> Wait a few minutes and try again." });
+  else if (err.code === "no_access") showLogin("noaccess", { message: err.message });
+  else if (err.code === "unreachable") showLogin("down");
+  else showLogin("form", { user, error: esc(err.message) });
+}
+$("#signout").addEventListener("click", async e => { e.preventDefault(); try { await api("POST", "/api/v1/auth/logout"); } catch (x) { /* already gone */ } endSession(); });
+
+// ---------------------------------------------------------------- start
+async function start() {
+  try { state.mode = await (await fetch("/api/v1/auth/mode")).json(); } catch (e) { /* older server: access key only */ }
+  if (sessionStorage.getItem("tok")) {
+    try { state.me = await api("GET", "/api/v1/auth/me"); return boot(); } catch (e) { if (e.status !== 401) { showFatal(e.message); return; } sessionStorage.removeItem("tok"); }
+  }
+  showLogin("form");
+}
+function showFatal(msg) {
+  $("#login").hidden = true; $("#app").hidden = false;
+  $("#view").innerHTML = `<section class="card"><div class="card-b"><h2 class="h2">Could not load the Stock Assistant</h2><p>${esc(msg)}</p><p class="muted">Check that the server is running and up to date (restart it after updating), then reload this page.</p></div></section>`;
+}
+
+async function health() {
+  try {
+    const h = await api("GET", "/health");            // signed in: the detail (ERPNext reachable, channels); a stranger would get only "ok"
+    $("#erpDot").className = "dot" + (h.erp_reachable ? "" : " bad"); $("#erpText").textContent = h.erp_reachable ? "Connected to ERPNext" : "Cannot reach ERPNext";
+    const phones = [["whatsapp", "WhatsApp"], ["telegram", "Telegram"]].filter(([k]) => (h.channels || []).includes(k)).map(([, n]) => n);
+    $("#waDot").className = "dot" + (phones.length ? "" : " grey"); $("#waText").textContent = phones.length ? "Approvals also sent to " + phones.join(" and ") : "Phone approvals (WhatsApp, Telegram) are off";
+  } catch { $("#erpDot").className = "dot bad"; $("#erpText").textContent = "Server not reachable"; }
+}
+
+async function boot() {
+  $("#login").hidden = true; $("#app").hidden = false;
+  const lv = { settings: "can change settings", decide: "can answer requests", look: "can look, not decide", none: "" }[state.me.level] || "";
+  $("#meName").textContent = state.me.full_name || state.me.user;
+  $("#meLevel").textContent = (state.me.access_key ? "Signed in with an access key" : "Signed in with your ERPNext account") + (lv ? " · " + lv : "");
+  health();
+  $("#view").innerHTML = `<section class="card"><div class="empty">Loading your stock…</div></section>`;
+  try {
+    const none = () => null;
+    const [items, glob, system, schema, pending, proc, opts, asst, cal] = await Promise.all([
+      api("GET", "/api/v1/inventory/items"), api("GET", "/api/v1/settings/policy/global/*"), api("GET", "/api/v1/settings/system"), api("GET", "/api/v1/settings/schema"),
+      can("decide") ? api("GET", "/api/v1/approvals?status=pending").catch(() => []) : Promise.resolve([]),
+      api("GET", "/api/v1/settings/procurement").catch(none), api("GET", "/api/v1/inventory/stock-options").catch(none),
+      api("GET", "/api/v1/settings/module/assistant").catch(none), api("GET", "/api/v1/settings/module/calendar").catch(none)
+    ]);
+    Object.assign(state, { items, global: glob, system, schema, pending, proc, opts, asst, cal, basis: null });
+  } catch (err) {
+    if (err.message === "Sign in required") return;
+    toast(err.message, true); showFatal(err.message); return;
+  }
+  render();
+}
+async function reload() { await boot(); }
+
+// ---------------------------------------------------------------- shell
+const NAV = [["ok", "Needs your OK", "Stock alerts, reorders, orders", "M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5"], ["chat", "Ask", "Stock, vendors, orders", "M21 12a8 8 0 01-11.5 7.2L4 21l1.8-5.3A8 8 0 1121 12z"], ["stock", "Your stock", "What is running low", "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"],
+  ["buying", "Buying", "Vendors and purchase orders", "M3 4h2l2.4 11h10.2l2-8H6.2M9 20h.01M17 20h.01"], ["history", "History", "What happened and why", "M12 7v5l3 2M21 12a9 9 0 11-3-6.7M21 4v4h-4"],
+  ["settings", "Settings", "Rules, vendors, reminders", "M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4"]];
+function render() {
+  const n = (state.pending || []).length;
+  $("#nav").innerHTML = NAV.map(([k, name, hint, icon]) => `<button class="${state.view === k ? "on" : ""}" data-view="${k}" ${state.view === k ? 'aria-current="page"' : ""}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icon}"/></svg>
+    <span>${name}<small>${hint}</small></span>${k === "ok" && n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
+  $$("#nav [data-view]").forEach(b => b.addEventListener("click", () => { state.view = b.dataset.view; render(); window.scrollTo(0, 0); }));
+  ({ ok: viewApprovals, chat: viewChat, stock: viewStock, buying: viewBuying, history: viewHistory, settings: viewSettings })[state.view]();
+}
+function head(title, sub, actions = "") { return `<div class="topbar"><div><h1 class="h1">${esc(title)}</h1><p class="lead">${esc(sub)}</p></div><div class="btns">${actions}</div></div>`; }
+function go(view, extra) { state.view = view; Object.assign(state, extra || {}); render(); window.scrollTo(0, 0); }
+
+// ================================================================ Needs your OK
+const SECTION_NAMES = { "Situation": "Where you stand", "Why you are seeing this": "Why the assistant is asking", "How usage was estimated": "How fast you use it", "Suggested action": "What it suggests",
+  "Confidence": "How sure it is", "Recommendation": "What it suggests", "Stock position": "Your stock", "Other vendors": "The other vendors", "Note to vendor": "Note to the vendor",
+  "Numbers": "The numbers", "Rules checked": "The rules it checked", "Where the thresholds come from": "Where your rules come from" };
+function friendlyOption(o) {
+  const m = /^Remind in (\d+)d$/.exec(o.label);
+  if (m) return `Remind me in ${m[1]} day${m[1] === "1" ? "" : "s"}`;
+  if (o.action === "dismiss") { const d = /(\d+) days/.exec(o.description || ""); if (o.label === "Ignore") return d ? `Ignore for ${d[1]} days` : "Ignore"; if (o.label === "Reject") return "Don't order this"; }
+  if (o.action === "details") return "Show all the numbers";
+  if (o.label === "Create order") return "Create the order";
+  if (o.label === "Create requisition") return "Create the requisition";
+  if (o.action === "requisition") return "Create a requisition instead";
+  return o.label;
+}
+// The reasons that matter stay in view; the supporting numbers fold away so a request can be read at a glance.
+const OPEN_SECTIONS = new Set(["Why you are seeing this", "Suggested action", "Recommendation", "Why this vendor", "Other vendors", "What happened", "What this means", "What to do", "What is needed", "Vendors checked", "What happens next", "The order", "If it is not right"]);
+function oneSection(s) { return `<div class="why"><b>${esc(SECTION_NAMES[s.heading] || s.heading)}</b><ul>${s.lines.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>`; }
+function sectionsHtml(secs, fold = true) {
+  const all = secs || [], shown = fold ? all.filter(s => OPEN_SECTIONS.has(s.heading)) : all, folded = fold ? all.filter(s => !OPEN_SECTIONS.has(s.heading)) : [];
+  return shown.map(oneSection).join("") + (folded.length ? `<details><summary style="cursor:pointer;font-weight:700;color:var(--green-d);min-height:44px;display:flex;align-items:center">How the assistant got there</summary><div style="display:flex;flex-direction:column;gap:12px">${folded.map(oneSection).join("")}</div></details>` : "");
+}
+function requestPill(r) {
+  const q = r.request, f = q.facts || {};
+  if (q.kind === "inventory.monitor_down") return ["urgent", "Stock is not being watched"];
+  if (q.kind === "inventory.alert") return f.level === "URGENT" ? ["urgent", "Needed urgently"] : /^Low stock soon/.test(q.title) ? ["soon", "Low stock soon"] : ["soon", "Low stock"];
+  if (q.kind === "procurement.po") return ["info", "Purchase order"];
+  if (q.kind === "procurement.order") return ["ok", "Order created"];
+  if (q.kind === "procurement.pr") return ["info", "Purchase requisition"];
+  if (q.kind === "procurement.manual") return ["soon", "Needs your decision"];
+  if (q.kind === "inventory.reorder") {
+    if (f.kind === "EARLY_WARNING" || /^Heads-up/.test(q.title)) return ["soon", "Heads-up"];
+    if (f.on_hand != null && f.on_hand <= 0) return ["urgent", "Out of stock"];
+    return q.severity === "CRITICAL" ? ["urgent", "Order now"] : ["soon", "Order soon"];
+  }
+  return [q.severity === "CRITICAL" || q.severity === "HIGH" ? "urgent" : "soon", q.severity];
+}
+function factTiles(q) {
+  const f = q.facts || {}; const t = [];
+  if (q.kind === "inventory.reorder") {
+    if (f.on_hand != null) t.push([fmt(f.on_hand, 0), "in stock now"]);
+    if (f.cover_days != null) t.push([fmt(f.cover_days, 0) + " days", "it will last"]);
+    if (f.lead_time_days != null) t.push([fmt(f.lead_time_days, 0) + " days", "for new stock to arrive"]);
+    if (f.suggested_qty) t.push([fmt(f.suggested_qty, 0), "suggested order"]);
+  } else if (q.kind === "inventory.alert") {
+    if (f.on_hand != null) t.push([fmt(f.on_hand, 0), "in stock now"]);
+    if (f.cover_days != null) t.push([fmt(f.cover_days, 0) + " days", "it will last"]);
+  } else if (q.kind === "procurement.order") {
+    if (f.qty != null) t.push([fmt(f.qty, 0), "ordered"]);
+    if (f.total != null) t.push([money(f.total), "total you pay"]);
+  } else if (q.kind === "procurement.po" || q.kind === "procurement.pr") {
+    if (f.qty != null) t.push([fmt(f.qty, 0), "to order"]);
+    if (f.unit_price != null) t.push([money(f.unit_price), "price each"]);
+    if (f.total != null) t.push([money(f.total), "total you pay"]);
+  }
+  return t.length ? `<div class="facts">${t.map(([b, s]) => `<div class="fact"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("")}</div>` : "";
+}
+function requestHtml(r, askOn) {
+  const q = r.request, [cls, label] = requestPill(r), decide = can("decide");
+  const kindText = { "inventory.reorder": "Reorder request", "procurement.po": "Purchase order", "procurement.pr": "Purchase requisition", "procurement.order": "Your draft order", "procurement.manual": "Needs your decision", "inventory.monitor_down": "Warning", "inventory.alert": "Stock alert" }[q.kind] || "Request";
+  return `<article class="req" data-id="${esc(r.id)}">
+    <div class="req-top"><span class="pill ${cls}">${esc(label)}</span><span class="muted small">${esc(kindText)}${q.facts && q.facts.item_code ? " · " + esc(q.facts.item_code) : ""} · asked ${esc(when(r.created_at))}</span></div>
+    <h2 class="h2" style="font-size:22px">${esc(q.title)}</h2>
+    <p class="said">${esc(q.headline)}</p>${factTiles(q)}${sectionsHtml(q.sections)}<div class="extra"></div>
+    ${q.kind === "inventory.reorder" ? `<p class="muted small" style="margin-top:-4px">"Start reorder" does not buy anything. The assistant first compares your vendors and comes back with a purchase order for you to approve.</p>` : ""}
+    ${q.kind === "procurement.po" ? `<div class="callout">If you approve, a draft purchase order is created in ERPNext for you to check. It is not submitted until you submit it there. ${state.me && !state.me.access_key ? "It is created under your own ERPNext name." : ""}</div>` : ""}
+    ${q.kind === "procurement.pr" ? `<div class="callout">If you approve, a draft purchase requisition (a Material Request) is created in ERPNext, with the recommended vendor in its note. Your buyer turns it into an order there. ${state.me && !state.me.access_key ? "It is created under your own ERPNext name." : ""}</div>` : ""}
+    <div class="btns">${q.options.map(o => `<button class="btn ${o.style === "primary" ? "primary" : o.style === "danger" ? "danger" : o.terminal ? "" : "quiet"}" data-act="${esc(o.action)}" title="${esc(o.description)}" ${decide || !o.terminal ? "" : "disabled"}>${esc(friendlyOption(o))}</button>`).join("")}</div>
+    ${decide ? "" : `<p class="muted small">Only people who can create purchase orders in ERPNext can answer requests.</p>`}${askOn ? askBoxHtml(r.id) : ""}</article>`;
+}
+// ---- Cancel an order that was already created: the person is asked to confirm first, and only an order the assistant created can be cancelled.
+async function askCancel(card, id) {
+  const box = card.querySelector(".extra");
+  try {
+    const res = await api("POST", "/api/v1/approvals/" + id + "/decision", { action: "cancel_order", params: {} });
+    if (res.status !== "need_input") { toast(res.message || "Done", res.status === "refused"); await reload(); state.view = "ok"; render(); return; }
+    box.innerHTML = `<div class="why"><b>Cancel this order?</b><p class="muted small">${esc(res.prompt.replace(/ Reply yes to cancel it, or no to keep it\.$/, ""))}</p>
+      <div class="btns"><button class="btn danger" data-cy>Yes, cancel it</button><button class="btn quiet" data-cn>No, keep it</button></div></div>`;
+    box.querySelector("[data-cy]").addEventListener("click", () => revise(card, id, { confirm: "yes" }, "cancel_order"));
+    box.querySelector("[data-cn]").addEventListener("click", () => { box.innerHTML = ""; });
+  } catch (e) { toast(e.message, true); }
+}
+// ---- Change the quantity or the vendor of an order request before answering it. The assistant checks the vendors again and replaces the request; nothing is ordered.
+async function revise(card, id, params, action) {
+  try {
+    const res = await api("POST", "/api/v1/approvals/" + id + "/decision", { action, params });
+    toast(res.message || "Done"); await reload(); state.view = "ok"; render();
+  } catch (e) { toast(e.message, true); try { await reload(); state.view = "ok"; render(); } catch (e2) { /* the message above says what happened; the list refreshes next time */ } }
+}
+function askQuantity(card, id) {
+  const r = (state.pending || []).find(x => x.id === id), f = (r && r.request.facts) || {}, box = card.querySelector(".extra"), order = r && r.request.kind === "procurement.order";
+  const how = order ? `The quantity is changed in this same purchase order (${esc(f.po_name || "")}) in ERPNext. The vendor and the price stay as they are.`
+    : "The assistant checks the vendors again for the new quantity and replaces this request with a new one. Nothing is ordered yet.";
+  box.innerHTML = `<div class="why"><b>${order ? "What should the order be for?" : "How many do you want to order?"}</b><p class="muted small">It is ${esc(fmt(f.qty, 0))} now. ${how}</p>
+    <div class="ask-row"><input class="in num" id="nq_${esc(id)}" type="number" min="0" step="any" value="${esc(f.qty ?? "")}" aria-label="New quantity"><button class="btn primary" data-nq>${order ? "Change the order" : "Update the request"}</button><button class="btn quiet" data-nqx>Never mind</button></div></div>`;
+  const input = box.querySelector("input");
+  input.focus(); input.select();
+  const go = () => revise(card, id, { qty: Number(input.value) }, "change_qty");
+  box.querySelector("[data-nq]").addEventListener("click", go);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  box.querySelector("[data-nqx]").addEventListener("click", () => { box.innerHTML = ""; });
+}
+async function askVendor(card, id) {
+  const box = card.querySelector(".extra");
+  try {
+    const res = await api("POST", "/api/v1/approvals/" + id + "/decision", { action: "change_vendor", params: {} });
+    if (res.status !== "need_input" || !(res.choices || []).length) { toast(res.message || "No other vendor to choose", true); return; }
+    box.innerHTML = `<div class="why"><b>Which vendor instead?</b><p class="muted small">These are the other vendors that were compared. The quantity stays as it is; the request is replaced by a new one.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0">${res.choices.map((c, i) => `<label class="check"><input type="radio" name="nv_${esc(id)}" value="${esc(c.id)}" ${i === 0 ? "checked" : ""}><span><b>${esc(c.label.split(":")[0])}</b><small>${esc(c.label.slice(c.label.indexOf(":") + 1).trim())}</small></span></label>`).join("")}</div>
+      <div class="btns"><button class="btn primary" data-nv>Use this vendor</button><button class="btn quiet" data-nvx>Never mind</button></div></div>`;
+    box.querySelector("[data-nv]").addEventListener("click", () => revise(card, id, { supplier: box.querySelector("input:checked").value }, "change_vendor"));
+    box.querySelector("[data-nvx]").addEventListener("click", () => { box.innerHTML = ""; });
+  } catch (e) { toast(e.message, true); }
+}
+function viewApprovals() {
+  const all = state.pending || [];
+  const tabOf = r => r.request.kind === "inventory.alert" ? "alerts" : r.request.kind === "inventory.reorder" ? "reorder" : r.request.kind.startsWith("procurement") ? "po" : "other";
+  const alertsN = all.filter(r => tabOf(r) === "alerts").length, ordersN = all.filter(r => r.request.kind === "procurement.order").length, reqN = all.length - alertsN - ordersN;
+  const list = all.filter(r => state.okTab === "all" || tabOf(r) === state.okTab);
+  const cnt = k => all.filter(r => tabOf(r) === k).length;
+  const heading = all.length ? [reqN ? `${reqN} thing${reqN === 1 ? "" : "s"} need${reqN === 1 ? "s" : ""} your OK` : "", alertsN ? `${alertsN} stock alert${alertsN === 1 ? "" : "s"} to read` : "", ordersN ? `${ordersN} order${ordersN === 1 ? "" : "s"} you can still change` : ""].filter(Boolean).join(" · ") : "Nothing needs your OK right now";
+  const askOn = !!(state.asst && state.asst.effective.enabled) && can("decide");
+  $("#view").innerHTML = head(heading,
+    all.length ? "The assistant never orders anything by itself. A stock alert only tells you what is low. A request asks what to do about it." : "When stock runs low, the assistant will tell you first, then ask you here and on your phone (WhatsApp or Telegram).",
+    `<span class="chip"><span class="dot${can("decide") ? "" : " grey"}"></span>${can("decide") ? "You can answer requests" : "You can look, not answer"}</span>`) + `
+    <div class="tabs" role="group" aria-label="Show">${[["all", "Everything", all.length], ["alerts", "Stock alerts", cnt("alerts")], ["reorder", "Reorders", cnt("reorder")], ["po", "Orders and requisitions", cnt("po")]].map(([k, n, c]) => `<button class="tab ${state.okTab === k ? "on" : ""}" data-tab="${k}">${n} <span>${c}</span></button>`).join("")}</div>
+    <section class="card" aria-label="Requests waiting for you">${list.length ? list.map(r => requestHtml(r, askOn)).join("") : `<div class="empty">${all.length ? "Nothing in this group." : "Nothing is waiting. You can look for problems yourself from the Your stock page."}</div>`}</section>
+    <section class="card" aria-label="How the assistant works"><div class="card-h"><h2 class="h2">How the assistant works</h2><span class="muted small">Change any of this under Settings</span></div><div class="card-b"><div class="sub-step">
+      <div><span class="pill info">Step 1</span><p class="h3" style="margin-top:8px">Checks your stock</p><p class="muted">Every day it reads stock and sales from ERPNext.</p></div>
+      <div><span class="pill info">Step 2</span><p class="h3" style="margin-top:8px">Tells you, then asks</p><p class="muted">If something is running low, you first get an alert saying what and why. If it needs buying, a request to reorder follows, here and on your phone (WhatsApp or Telegram).</p></div>
+      <div><span class="pill info">Step 3</span><p class="h3" style="margin-top:8px">Compares your vendors</p><p class="muted">After you say yes, it weighs price, duties, delivery and track record.</p></div>
+      <div><span class="pill info">Step 4</span><p class="h3" style="margin-top:8px">Drafts the order</p><p class="muted">You approve one vendor and a draft purchase order appears in ERPNext.</p></div></div></div></section>`;
+  $$("#view [data-tab]").forEach(b => b.addEventListener("click", () => { state.okTab = b.dataset.tab; render(); }));
+  if (askOn) wireAsk($("#view"));
+  $$("#view [data-act]").forEach(b => b.addEventListener("click", async () => {
+    const card = b.closest(".req"), id = card.dataset.id;
+    if (b.dataset.act === "change_qty") return askQuantity(card, id);
+    if (b.dataset.act === "change_vendor") return askVendor(card, id);
+    if (b.dataset.act === "cancel_order") return askCancel(card, id);
+    try {
+      const res = await api("POST", "/api/v1/approvals/" + id + "/decision", { action: b.dataset.act });
+      if (res.status === "info") { card.querySelector(".extra").innerHTML = sectionsHtml(res.info_sections, false); return; }
+      toast(res.message || "Done"); await reload(); state.view = "ok"; render();
+    } catch (e) { toast(e.message, true); }
+  }));
+}
+
+// ---- "Ask why": answers come only from the recorded data of the request
+const ASK_PILL = { answered: ["ok", "Checked answer"], not_enough_information: ["off", "Not enough information"], rejected: ["off", "Not enough information"], unavailable: ["urgent", "Helper not available"], disabled: ["off", "Helper is off"] };
+function askBoxHtml(id) {
+  return `<div class="ask"><label class="label" for="q_${esc(id)}">Have a question about this request?</label>
+    <div class="ask-row"><input id="q_${esc(id)}" class="in" data-q="${esc(id)}" maxlength="500" placeholder="For example: Why this quantity? Why this vendor?"><button class="btn" data-ask="${esc(id)}">Ask</button></div>
+    <p class="muted small">Answers use only the numbers recorded for this request. If they do not cover your question, you will be told so.</p>
+    <div data-answers="${esc(id)}" style="display:flex;flex-direction:column;gap:10px"></div></div>`;
+}
+function answerHtml(q, r) {
+  const [cls, label] = ASK_PILL[r.status] || ["off", r.status];
+  const sources = (r.facts || []).length ? `<details style="margin-top:6px"><summary class="muted small" style="cursor:pointer">Where this comes from (${r.facts.length})</summary><ul style="margin:6px 0 0;padding-left:18px">${r.facts.map(f => `<li class="small">${esc(f.text)}</li>`).join("")}</ul></details>` : "";
+  return `<div class="answer"><div class="muted small">You asked: ${esc(q)}</div><div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><span class="pill ${cls}">${label}</span><div>${esc(r.answer)}</div></div>${sources}</div>`;
+}
+function wireAsk(root) {
+  $$("[data-answers]", root).forEach(async box => { try { const hist = await api("GET", "/api/v1/assistant/history/" + encodeURIComponent(box.dataset.answers)); box.innerHTML = hist.map(h => answerHtml(h.question, h)).join(""); } catch (e) { /* history is optional */ } });
+  $$("[data-ask]", root).forEach(btn => {
+    const id = btn.dataset.ask, input = root.querySelector(`[data-q="${CSS.escape(id)}"]`), box = root.querySelector(`[data-answers="${CSS.escape(id)}"]`);
+    const goAsk = async () => {
+      const q = input.value.trim(); if (!q) { input.focus(); return; }
+      btn.disabled = input.disabled = true; const old = btn.textContent; btn.textContent = "Thinking…";
+      const wait = document.createElement("div"); wait.className = "muted small"; wait.textContent = "Asking the helper on this computer. The first question can take a couple of minutes."; box.appendChild(wait);
+      try { const r = await api("POST", "/api/v1/assistant/ask", { approval_id: id, question: q }); wait.remove(); box.insertAdjacentHTML("beforeend", answerHtml(q, r)); input.value = ""; }
+      catch (e) { wait.remove(); toast(e.message, true); } finally { btn.disabled = input.disabled = false; btn.textContent = old; }
+    };
+    btn.addEventListener("click", goAsk); input.addEventListener("keydown", e => { if (e.key === "Enter") goAsk(); });
+  });
+}
+
+// ================================================================ Ask (chat with the assistant; read-only, answers come from live data)
+function chatBlocks(blocks) {
+  return (blocks || []).map(b => b.type === "table"
+    ? `<div class="card" style="overflow:hidden"><div class="card-h" style="padding:12px 16px"><b>${esc(b.title || "")}</b></div><div class="scroll"><table class="tbl"><thead><tr>${b.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${b.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`
+    : `<div><p class="small muted" style="margin-bottom:6px">${esc(b.title || "")}</p><div class="kvgrid">${b.rows.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div></div>`).join("");
+}
+function chatMessage(m, i) {
+  if (m.role === "me") return `<div class="msg me"><div class="bubble">${esc(m.text)}</div></div>`;
+  if (m.pending) return `<div class="msg bot"><div class="bubble typing">${esc(m.note || "Looking that up in ERPNext…")}</div></div>`;
+  const aiOn = !!(state.asst && state.asst.effective.enabled);
+  return `<div class="msg bot" data-i="${i}">${m.source === "agent" ? `<div><span class="pill info">AI assistant: numbers checked against ERPNext</span></div>` : ""}<div class="bubble ${m.status === "error" ? "err" : ""}">${esc(m.answer)}</div>${m.tokens_note ? `<p class="muted small" style="margin:2px 6px">${esc(m.tokens_note)}</p>` : ""}${chatBlocks(m.blocks)}
+    ${m.expect ? `<div style="display:flex;gap:8px"><button class="btn danger sm" data-confirm="yes" data-i="${i}">Yes, cancel it</button><button class="btn quiet sm" data-confirm="no" data-i="${i}">No, keep it</button></div>` : ""}
+    ${(m.actions || []).map(a => `<div><button class="btn sm" data-go="${esc(a.view)}">${esc(a.label)}</button></div>`).join("")}
+    ${m.explanation ? `<div class="answer"><div style="display:flex;gap:10px;align-items:flex-start"><span class="pill ${m.explanation.status === "answered" ? "ok" : "off"}">${m.explanation.status === "answered" ? "In plain words (checked)" : "Not enough information"}</span><div>${esc(m.explanation.answer)}</div></div></div>` : ""}
+    ${(m.facts || []).length ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--green-d);min-height:36px;display:flex;align-items:center">Where this comes from (${m.facts.length})</summary><ul class="small muted" style="margin:4px 0 0;padding-left:20px">${m.facts.map(f => `<li>${esc(f.text)}</li>`).join("")}</ul></details>` : ""}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${aiOn && m.status === "answered" && !m.explanation && (m.facts || []).length ? `<button class="chipbtn" data-explain="${i}">Explain in plain words</button>` : ""}${(m.follow_ups || []).map(f => `<button class="chipbtn" data-ask="${esc(f)}">${esc(f)}</button>`).join("")}</div></div>`;
+}
+function viewChat() {
+  const hot = state.items.find(i => i.status === "BREACH" || i.status === "EARLY_WARNING") || state.items[0];
+  const sample = hot ? hot.item_code : "an item code";
+  const starters = ["What is running low?", `How much ${sample} do we have?`, `Compare vendors for ${sample}`, "Status of our open purchase orders", "Which requisitions did we create this week?"].concat(can("decide") ? ["What is waiting for my OK?"] : []);
+  $("#view").innerHTML = head("Ask", "Ask about your stock, your vendors and your purchase orders and requisitions. Answers come from your live ERPNext data. I only read. I can prepare an order request, or cancel an order I created after you confirm; nothing is ordered until you press Create order.",
+    `<button class="btn" id="chatclear" ${state.chat.length ? "" : "disabled"}>Start over</button>`) + `
+    <div class="chat"><div class="msgs" id="msgs">${state.chat.length ? state.chat.map(chatMessage).join("") : `<div class="card"><div class="card-b"><h2 class="h3">What would you like to know?</h2><p class="muted">Type a question below, or start with one of these.</p><div style="display:flex;flex-wrap:wrap;gap:8px">${starters.map(s => `<button class="chipbtn" data-ask="${esc(s)}">${esc(s)}</button>`).join("")}</div>
+      <p class="muted small">Tips: name an item by its code or full name. For vendors you can add a quantity, for example "compare vendors for ${esc(sample)} for 500". Ask about a purchase order by its number, for example PUR-ORD-2026-00543.</p></div></div>`}</div>
+      <form class="askbar" id="chatform"><label for="chatq" style="position:absolute;left:-9999px">Your question</label><input id="chatq" class="in" maxlength="300" autocomplete="off" placeholder="Ask about stock, vendors, purchase orders or requisitions…"><button class="btn primary" type="submit" id="chatgo">Ask</button></form></div>`;
+  $("#chatform").addEventListener("submit", e => { e.preventDefault(); const q = $("#chatq").value.trim(); if (q) sendChat(q); });
+  $$("#view [data-ask]").forEach(b => b.addEventListener("click", () => sendChat(b.dataset.ask)));
+  $$("#view [data-go]").forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
+  $$("#view [data-explain]").forEach(b => b.addEventListener("click", () => explainChat(Number(b.dataset.explain), b)));
+  $$("#view [data-confirm]").forEach(b => b.addEventListener("click", () => confirmChat(Number(b.dataset.i), b.dataset.confirm)));
+  $("#chatclear").addEventListener("click", () => { state.chat = []; saveChat(); viewChat(); });
+  $("#chatq").focus();
+  const last = $("#msgs").lastElementChild; if (last && state.chat.length) last.scrollIntoView({ block: "end" });
+}
+function saveChat() { try { sessionStorage.setItem("chat", JSON.stringify(state.chat.filter(m => !m.pending).slice(-40))); } catch (e) { /* storage full or blocked: the conversation just is not kept */ } }
+async function sendChat(question) {
+  const lastBot = [...state.chat].reverse().find(m => m.role === "bot" && (m.items || []).length);
+  state.chat.push({ role: "me", text: question }); state.chat.push({ role: "bot", pending: true });
+  viewChat(); $("#chatq").disabled = true; $("#chatgo").disabled = true;
+  try {
+    let r = await api("POST", "/api/v1/chat", { question, context: lastBot ? { items: lastBot.items.slice(0, 5) } : null });
+    if (r.status === "working" && r.task_id) {            // an AI agent took the question: it can take minutes, so ask again until it is done
+      state.chat[state.chat.length - 1] = { role: "bot", pending: true, note: r.answer }; viewChat(); $("#chatq").disabled = true; $("#chatgo").disabled = true;
+      const t = await waitForTask(r.task_id, secs => { const b = $("#msgs .typing"); if (b) b.textContent = `Asking the AI assistant… ${secs}s. ${r.answer}`; });
+      const res = t.result || {}, answered = res.status === "answered" || res.status === "not_enough_information";
+      r = { intent: "agent", source: "agent", status: answered ? "answered" : "error", answer: answered ? res.answer : (res.answer || "The AI assistant could not answer just now.") + " Try asking in another way, for example \"What is running low?\".", blocks: [], facts: [], follow_ups: [], items: [], actions: [], tokens_note: tokenLine(res.tokens, t.model) };
+    }
+    state.chat[state.chat.length - 1] = { role: "bot", question, ...r };
+  } catch (e) {
+    state.chat[state.chat.length - 1] = { role: "bot", question, status: "error", answer: e.status === 429 ? e.message : "I could not answer that: " + e.message, blocks: [], facts: [], follow_ups: [] };
+  }
+  saveChat(); viewChat();
+}
+// The assistant asked in the chat "cancel this order?": the answer goes to the same request the Needs your OK page shows.
+async function confirmChat(i, answer) {
+  const m = state.chat[i], ask = m.expect; delete m.expect;
+  let reply;
+  try {
+    const res = await api("POST", "/api/v1/approvals/" + ask.approval_id + "/decision", { action: ask.action, params: { confirm: answer } });
+    reply = { role: "bot", question: "", status: res.status === "refused" ? "error" : "answered", answer: res.message || "Done", blocks: [], facts: [], follow_ups: [], items: m.items || [], actions: [] };
+  } catch (e) { reply = { role: "bot", question: "", status: "error", answer: "I could not do that: " + e.message, blocks: [], facts: [], follow_ups: [] }; }
+  state.chat.push({ role: "me", text: answer === "yes" ? "Yes, cancel it" : "No, keep it" }, reply);
+  saveChat(); viewChat();
+}
+async function explainChat(i, btn) {
+  const m = state.chat[i]; btn.disabled = true; btn.textContent = "Thinking… (the first time can take a minute or two)";
+  try { m.explanation = await api("POST", "/api/v1/chat", { question: m.question, explain: true, context: null }); } catch (e) { m.explanation = { status: "error", answer: e.message }; }
+  saveChat(); viewChat();
+}
+
+// ================================================================ Your stock
+function statusOf(i) {
+  if (i.status === "DISABLED") return ["off", "Not watched", "Monitoring is turned off for this item."];
+  if (i.status === "ERROR") return ["urgent", "Problem", i.error || "The assistant could not work this item out."];
+  if (i.status === "OK") return ["ok", "Fine", ""];
+  if (i.status === "EARLY_WARNING") return ["soon", "Keep an eye on it", i.headline];
+  if (i.position != null && i.position <= 0) return ["urgent", "Out of stock", i.headline];
+  return i.severity === "CRITICAL" ? ["urgent", "Order now", i.headline] : ["soon", "Order soon", i.headline];
+}
+const MONITOR_HEAD = { available: "Stock I can sell", position: "Stock to plan with", reserved_qty: "Promised to customers", reserved_qty_for_production: "Set aside for production",
+  reserved_qty_for_sub_contract: "With subcontractors", reserved_qty_for_production_plan: "Planned for production", ordered_qty: "Ordered from vendors", indented_qty: "Requested inside your company",
+  planned_qty: "Being made", arrival_date: "Next delivery", projected_qty: "ERPNext's projected quantity" };
+const qty = (v, i, z) => v == null || (!v && !z) ? `<span class="muted">–</span>` : `${fmt(v, 0)} <span class="muted">${esc(i.uom)}</span>`;
+function arrivalHtml(i) {
+  if (!i.incoming) return `<span class="muted">–</span>`;
+  if (!i.next_arrival) return `<span class="muted">Date not set</span>`;
+  const d = new Date(i.next_arrival + "T00:00:00"), t = new Date(); t.setHours(0, 0, 0, 0); const days = Math.round((d - t) / 86400000);
+  return `${esc(d.toLocaleDateString(undefined, { day: "numeric", month: "short" }))}<small${days < 0 ? ' style="color:var(--red);font-weight:700"' : ""}>${days === 0 ? "today" : days > 0 ? "in " + days + " days" : "late by " + (-days) + " days"}</small>`;
+}
+function monitorCell(col, i) {
+  if (col === "arrival_date") return `<td>${arrivalHtml(i)}</td>`;
+  if (col === "available") return `<td class="r num">${qty(i.available, i, true)}</td>`;
+  if (col === "position") return `<td class="r num">${qty(i.position, i, true)}</td>`;
+  if (col === "projected_qty") return `<td class="r num">${qty(i.projected, i, true)}</td>`;
+  const c = (i.stock_columns || []).find(x => x.column === col);
+  return `<td class="r num">${qty(c && c.value, i)}${c && c.value && c.use === "not used" ? `<small>not counted</small>` : ""}</td>`;
+}
+function viewStock() {
+  const extra = (state.system && state.system.monitor_columns) || [], items = state.items;
+  const hot = items.filter(i => i.status === "BREACH" && i.severity === "CRITICAL" || (i.status === "BREACH" && i.position != null && i.position <= 0)).length;
+  const soon = items.filter(i => (i.status === "BREACH" || i.status === "EARLY_WARNING")).length - hot;
+  const fine = items.filter(i => i.status === "OK").length, off = items.filter(i => i.status === "DISABLED").length;
+  const need = items.filter(i => i.status === "BREACH" || i.status === "EARLY_WARNING");
+  let shown = state.stockTab === "need" ? need : state.stockTab === "off" ? items.filter(i => i.status === "DISABLED") : items;
+  const f = state.find.trim().toLowerCase(); if (f) shown = shown.filter(i => (i.item_name + " " + i.item_code + " " + (i.group || "")).toLowerCase().includes(f));
+  const settingsOk = can("settings");
+  const rows = shown.map(i => {
+    const o = i.item_overrides || {}, [cls, label, why] = statusOf(i), own = Object.keys(o).length > 0;
+    const inp = k => `<input class="in short num ${o[k] !== undefined ? "changed" : ""}" type="number" min="0" step="any" data-code="${esc(i.item_code)}" data-k="${k}" data-orig="${o[k] ?? ""}" value="${o[k] ?? ""}" placeholder="${i[k] ?? "off"}" aria-label="Reorder when fewer than this many ${k === "min_qty" ? "units" : "days"} are left, ${esc(i.item_name)}" ${settingsOk ? "" : "disabled"}>`;
+    return `<tr><td><b>${esc(i.item_name)}</b><small>${esc(i.item_code)} · ${esc(i.group || "")}</small></td>
+      <td class="r num"><b>${fmt(i.on_hand, 0)}</b> ${esc(i.uom)}${i.reserved > 0 ? `<small>${fmt(i.reserved, 0)} promised to customers</small>` : ""}</td>
+      ${extra.map(c => monitorCell(c, i)).join("")}
+      <td class="r num">${i.cover_days == null ? `<span class="muted">–</span>` : `<b>${fmt(i.cover_days, 0)} days</b>`}<small>${i.daily_use ? "selling about " + fmt(i.daily_use, 0) + " a day" : "no recent sales"}</small>${(i.calendar || []).length ? `<small style="color:var(--green-d);font-weight:700">busy season: ${esc(i.calendar[0].name)}</small>` : ""}</td>
+      <td><div class="btns" style="flex-wrap:nowrap">${inp("min_qty")}${inp("min_days_cover")}</div><small class="muted" style="${own ? "color:var(--green-d);font-weight:700" : ""}">${own ? "your own rule for this item" : "using your general rule"}</small></td>
+      <td><span class="pill ${cls}">${label}</span>${why ? `<small style="margin-top:6px">${esc(why)}</small>` : ""}${i.incoming ? `<small>${fmt(i.incoming, 0)} on order${i.next_arrival ? ", due " + esc(i.next_arrival) : ""}</small>` : ""}</td>
+      <td style="white-space:nowrap"><button class="btn sm primary" data-save="${esc(i.item_code)}" disabled>Save</button> ${own ? `<button class="btn sm" data-reset="${esc(i.item_code)}" ${settingsOk ? "" : "disabled"}>Back to general rule</button>` : ""}</td></tr>`;
+  }).join("");
+  $("#view").innerHTML = head("Your stock", "Everything the assistant is watching in ERPNext. The items that need attention are at the top.",
+    `<button class="btn" id="dry">See what I would be asked</button><button class="btn primary" id="live" ${can("settings") || can("decide") ? "" : "disabled"}>Check stock now</button>`) + `
+    <p class="muted small" style="margin-top:-12px">"See what I would be asked" shows the result without sending you any requests. "Check stock now" sends them for real.</p><div id="runresult"></div>
+    <div class="facts" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      <div class="fact" style="background:var(--red-soft)"><b style="color:#8E2A12">${hot}</b><span style="color:#8E2A12">need ordering now</span></div>
+      <div class="fact" style="background:var(--amber-soft)"><b style="color:var(--amber)">${Math.max(soon, 0)}</b><span style="color:var(--amber)">will run low soon</span></div>
+      <div class="fact" style="background:var(--green-soft)"><b style="color:var(--green-d)">${fine}</b><span style="color:var(--green-d)">are fine</span></div>
+      <div class="fact"><b>${off}</b><span>not being watched</span></div></div>
+    <section class="card" aria-label="All items"><div class="card-h"><div class="tabs">
+      ${[["all", "All items", items.length], ["need", "Need action", need.length], ["off", "Not watched", off]].map(([k, n, c]) => `<button class="tab ${state.stockTab === k ? "on" : ""}" data-stab="${k}">${n} <span>${c}</span></button>`).join("")}</div>
+      <div class="field" style="min-width:260px"><label for="find" style="position:absolute;left:-9999px">Find an item</label><input id="find" class="in" value="${esc(state.find)}" placeholder="Find an item by name or code"></div></div>
+      <div class="scroll"><table class="tbl" style="min-width:${1060 + 130 * extra.length}px"><thead><tr><th>Item</th><th class="r">In stock</th>${extra.map(c => `<th class="r">${esc(MONITOR_HEAD[c] || c)}</th>`).join("")}<th class="r">Lasts about</th>
+        <th>Reorder when fewer than…<small style="font-weight:400">units left &nbsp;·&nbsp; days left</small></th><th>What the assistant says</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${7 + extra.length}" class="empty">${items.length ? "Nothing matches." : "ERPNext returned no stock items."}</td></tr>`}</tbody></table></div></section>
+    <section class="card"><div class="card-b" style="flex-direction:row;flex-wrap:wrap;gap:32px"><div style="flex:1 1 320px"><h2 class="h3">How to read this</h2><p class="muted" style="margin-top:6px"><b style="color:var(--ink)">In stock</b> is what is on your shelves in ERPNext. <b style="color:var(--ink)">Lasts about</b> is the stock you can sell, divided by how much you sell per day.</p></div>
+      <div style="flex:1 1 320px"><h2 class="h3">Want to change the rules for every item?</h2><p class="muted" style="margin-top:6px">Set how low is too low, which warehouses count, and what counts as stock under <a href="#" id="toCfg">Settings → When to reorder</a>. A rule typed in this table only applies to that one item.</p></div></div></section>`;
+  $$("#view [data-stab]").forEach(b => b.addEventListener("click", () => { state.stockTab = b.dataset.stab; render(); }));
+  const fi = $("#find"); fi.addEventListener("input", () => { state.find = fi.value; const pos = fi.selectionStart; render(); const n = $("#find"); n.focus(); n.setSelectionRange(pos, pos); });
+  $$("#view input[data-code]").forEach(inp => inp.addEventListener("input", () => {
+    inp.classList.toggle("changed", inp.value !== inp.dataset.orig || inp.dataset.orig !== "");
+    const tr = inp.closest("tr"); tr.querySelector("[data-save]").disabled = ![...tr.querySelectorAll("input[data-code]")].some(x => x.value !== x.dataset.orig);
+  }));
+  $$("#view [data-save]").forEach(b => b.addEventListener("click", () => saveItem(b.dataset.save, b.closest("tr"))));
+  $$("#view [data-reset]").forEach(b => b.addEventListener("click", async () => { try { await api("DELETE", "/api/v1/settings/policy/item/" + encodeURIComponent(b.dataset.reset)); toast("Back to the general rule"); await reload(); state.view = "stock"; render(); } catch (e) { toast(e.message, true); } }));
+  $("#toCfg").addEventListener("click", e => { e.preventDefault(); go("settings", { cfg: "reorder" }); });
+  $("#dry").addEventListener("click", () => runCheck(true)); $("#live").addEventListener("click", () => runCheck(false));
+}
+async function saveItem(code, tr) {
+  const set = {}, clear = [];
+  tr.querySelectorAll("input[data-code]").forEach(x => { if (x.value === x.dataset.orig) return; if (x.value === "") clear.push(x.dataset.k); else set[x.dataset.k] = Number(x.value); });
+  try { await api("PUT", "/api/v1/settings/policy/item/" + encodeURIComponent(code), { set, clear }); toast("Saved the rule for " + code); await reload(); state.view = "stock"; render(); } catch (e) { toast(e.message, true); }
+}
+async function runCheck(dry) {
+  const box = $("#runresult");
+  try {
+    box.innerHTML = `<section class="card"><div class="card-b">Checking your stock…</div></section>`;
+    const r = await api("POST", "/api/v1/inventory/run?dry_run=" + dry);
+    if (r.failed) { box.innerHTML = `<section class="card"><div class="card-b"><div class="callout bad"><b>The check could not read ERPNext.</b> ${esc((r.errors || [])[0] || "")} Nothing was checked.</div></div></section>`; return; }
+    if (dry) { const names = (r.actions || []).filter(a => a.action === "would_alert").map(a => a.item_code);
+      box.innerHTML = `<section class="card"><div class="card-b"><b>Preview:</b> ${r.checked} items checked. ${r.new_alerts ? `You would be asked about ${r.new_alerts}: ${esc(names.slice(0, 12).join(", "))}${names.length > 12 ? "…" : ""}.` : "You would not be asked about anything."} Nothing was sent.</div></section>`; return; }
+    toast(r.new_alerts ? `${r.new_alerts} request${r.new_alerts === 1 ? "" : "s"} sent to you` : "Checked. Nothing new to ask you."); await reload(); state.view = "ok"; render();
+  } catch (e) { box.innerHTML = ""; toast(e.message, true); }
+}
+
+// ================================================================ Buying
+const PROPOSAL_PILL = { awaiting: ["soon", "Waiting for you"], manual: ["soon", "Needs your decision"], ordered: ["ok", "Created in ERPNext"], snoozed: ["off", "Reminder set"], rejected: ["off", "You said no"],
+  acknowledged: ["off", "Noted"], expired: ["off", "Expired"], cancelled: ["off", "Cancelled"], superseded: ["off", "Asked again"], po_failed: ["urgent", "ERPNext refused the order"] };
+function rankingHtml(r) {
+  if (!r || !r.vendors) return "";
+  const rows = r.vendors.map((v, i) => {
+    const verdict = i === 0 && v.eligible ? `<span class="pill ok">Recommended</span>` : v.eligible ? `<span class="pill off">Not chosen</span>` : `<span class="pill off">Not compared</span>`;
+    const note = v.why_not || (v.flags || []).join("; ");
+    return `<tr class="${i === 0 && v.eligible ? "best" : ""}"><td><b>${esc(v.name)}</b><small>${esc(v.country || "India")}</small></td>
+      <td class="r num">${v.eligible ? money(v.unit_price) + (v.price_source === "quotation" ? `<small>Quoted: ${esc(v.quote_ref)}${v.quote_valid_till ? ", valid until " + esc(v.quote_valid_till) : ""}</small>` : "") : "–"}</td><td class="r num">${v.eligible ? `<b>${money(v.total)}</b>` : "–"}</td>
+      <td class="r num">${v.eligible ? fmt(v.lead_days, 0) + " days" + (v.lead_assumed ? "*" : v.lead_from_quote ? "†" : "") : "–"}</td><td class="r num">${v.on_time_rate == null ? "–" : Math.round(v.on_time_rate * 100) + "%"}</td>
+      <td class="r num">${v.payment_days == null ? "–" : fmt(v.payment_days, 0) + " days"}</td><td>${verdict}${note ? `<small style="margin-top:6px">${esc(note)}</small>` : ""}</td></tr>`;
+  }).join("");
+  const worked = r.vendors.filter(v => v.eligible && (v.tax_lines || []).length).map(v => `<div class="why"><b>How the total for ${esc(v.name)} is worked out</b>
+    <table class="tbl" style="margin-top:6px"><tbody><tr><td>Goods</td><td class="r num">${money(v.goods_total)}</td></tr>
+    ${v.tax_lines.map(l => `<tr><td>${esc(l.name)}${l.in_cost ? "" : " <span class='muted'>(you claim this back, so it is not counted)</span>"}</td><td class="r num">${money(l.amount)}</td></tr>`).join("")}
+    <tr><td><b>Total you pay</b></td><td class="r num"><b>${money(v.total)}</b></td></tr></tbody></table>
+    ${v.tax_template ? `<p class="muted small" style="margin-top:6px">Taken from ERPNext's tax template "${esc(v.tax_template)}".</p>` : ""}</div>`).join("");
+  return `<div class="scroll"><table class="tbl" style="min-width:900px"><thead><tr><th>Vendor</th><th class="r">Price each</th><th class="r">Total you pay</th><th class="r">Delivery</th><th class="r">On time</th><th class="r">Time to pay</th><th>Our verdict</th></tr></thead><tbody>${rows}</tbody></table></div>${worked}
+    ${(r.notes || []).map(n => `<div class="callout warn">${esc(n)}</div>`).join("")}<p class="muted small">* delivery time assumed from the item's usual lead time, because there is no delivery history.${r.vendors.some(v => v.lead_from_quote) ? " † delivery time as quoted by the vendor, because there is no delivery history." : ""}</p>`;
+}
+function viewBuying() {
+  $("#view").innerHTML = head("Buying", "When you approve a reorder, the assistant compares your vendors and asks you to OK one purchase order. Everything in progress is here.",
+    `<button class="btn" id="vdry">See what it would suggest</button><button class="btn primary" id="vrun" ${can("decide") ? "" : "disabled"}>Look for vendors now</button>`) + `<div id="vresult"></div>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Waiting for a vendor check</h2><p class="muted small">Reorders you approved. The assistant picks them up within a few minutes.</p></div></div><div id="wo" class="empty">Loading…</div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Purchase order suggestions</h2><p class="muted small">What the assistant recommended, and what happened next. Open one to see why each vendor was or was not chosen.</p></div></div><div id="props" class="empty">Loading…</div></section>
+    <section class="card"><div class="card-b" style="flex-direction:row;flex-wrap:wrap;gap:32px">
+      <div style="flex:1 1 300px"><h2 class="h3">What "Total you pay" includes</h2><p class="muted" style="margin-top:6px">The price times the quantity, plus the costs of getting the goods to you: import duty, freight, insurance and port charges. Taxes you can claim back (GST, IGST) are listed but not counted.</p></div>
+      <div style="flex:1 1 300px"><h2 class="h3">Where the duty rates come from</h2><p class="muted" style="margin-top:6px">From ERPNext, not from this app. It uses the same tax rules and templates ERPNext would apply to a purchase from that vendor. To change a rate, change it in ERPNext. <a href="#" id="toCfg">How vendors are chosen</a></p></div>
+      <div style="flex:1 1 300px"><h2 class="h3">What "Create the order" and "Create the requisition" do</h2><p class="muted" style="margin-top:6px">They create a draft purchase order, or a draft purchase requisition, in ERPNext. When you approve in this console it is created under your own ERPNext name, so ERPNext shows you as the creator. You review it and submit it there. The assistant never submits anything.</p></div></div></section>`;
+  $("#toCfg").addEventListener("click", e => { e.preventDefault(); go("settings", { cfg: "vendors" }); });
+  const run = async dry => {
+    try {
+      const r = await api("POST", "/api/v1/procurement/run?dry_run=" + dry);
+      const lines = r.actions.map(a => a.vendor ? `<li><b>${esc(a.item_code)}</b>: ${dry ? "would suggest" : "suggested"} ${esc(a.vendor)} for ${fmt(a.qty, 0)} (total ${money(a.total)})</li>` : `<li><b>${esc(a.item_code)}</b>: ${esc(a.problem || a.action)}</li>`).join("");
+      $("#vresult").innerHTML = `<section class="card"><div class="card-b"><div><b>${dry ? "Preview" : "Done"}:</b> ${r.considered} reorder${r.considered === 1 ? "" : "s"} looked at. ${r.proposed} ${dry ? "would be suggested" : "suggested"}, ${r.manual} need your decision, ${r.skipped} skipped.${dry ? " Nothing was sent." : ""}</div>${r.errors.length ? `<div class="callout bad">${r.errors.map(esc).join("<br>")}</div>` : ""}${lines ? `<ul style="margin:0;padding-left:20px">${lines}</ul>` : ""}</div></section>`;
+      if (!dry) { await loadBuying(); if (can("decide")) { state.pending = await api("GET", "/api/v1/approvals?status=pending").catch(() => state.pending); render_nav_only(); } }
+    } catch (e) { toast(e.message, true); }
+  };
+  $("#vdry").addEventListener("click", () => run(true)); $("#vrun").addEventListener("click", () => run(false));
+  loadBuying();
+}
+function render_nav_only() { const n = (state.pending || []).length, b = $("#nav .count"); if (b) b.textContent = n; }
+async function loadBuying() {
+  try {
+    const [wos, claimed, props] = await Promise.all([api("GET", "/api/v1/work-orders?status=pending&type=REORDER_NEEDED"), api("GET", "/api/v1/work-orders?status=claimed&type=REORDER_NEEDED"), api("GET", "/api/v1/procurement/proposals?limit=30")]);
+    const list = [...wos.map(w => [w, "next"]), ...claimed.map(w => [w, "asked"])];
+    $("#wo").className = list.length ? "scroll" : "empty";
+    $("#wo").innerHTML = list.length ? `<table class="tbl" style="min-width:700px"><thead><tr><th>Item</th><th class="r">Suggested quantity</th><th>You approved it</th><th>What happens next</th></tr></thead><tbody>${list.map(([w, st]) => { const p = w.payload;
+      return `<tr><td><b>${esc(p.item_name)}</b><small>${esc(p.item_code)}</small></td><td class="r num">${p.suggested_qty ? fmt(p.suggested_qty, 0) + " " + esc(p.uom) : "–"}</td><td>${esc(p.approved_by)}, from ${esc(p.approved_via)}</td>
+      <td>${st === "next" ? `<span class="pill info">Next in line</span><small style="margin-top:6px">Vendors will be compared within a few minutes, then you will get a purchase order to approve.</small>` : `<span class="pill soon">Waiting for you</span><small style="margin-top:6px">A purchase order is waiting under Needs your OK.</small>`}</td></tr>`; }).join("")}</tbody></table>` : "No reorders are waiting for a vendor check.";
+    $("#props").className = props.length ? "" : "empty";
+    $("#props").innerHTML = props.length ? props.map(p => { const [cls, label] = PROPOSAL_PILL[p.status] || ["off", p.status];
+      return `<details class="req" ${p.status === "awaiting" ? "open" : ""}><summary style="cursor:pointer;display:flex;flex-wrap:wrap;gap:12px;align-items:center"><span class="pill ${cls}">${esc(label)}</span><b>${p.supplier_name ? esc(p.item_code) + " · " + esc(p.supplier_name) + " · " + fmt(p.qty, 0) + " · " + money(p.total) : esc(p.item_code) + " · no vendor suggested"}</b>${p.po_name ? `<span class="pill ok">Draft ${p.ranking && p.ranking.document === "requisition" ? "requisition" : "order"} ${esc(p.po_name)}</span>` : ""}<span class="muted small">${esc(when(p.created_at))}</span></summary>
+        <div style="display:flex;flex-direction:column;gap:14px;margin-top:14px"><p class="muted">${esc(p.status_note || "")}</p>${p.ranking && p.ranking.vendor_note ? `<div class="why"><b>Note to the vendor</b>${esc(p.ranking.vendor_note)}</div>` : ""}${rankingHtml(p.ranking)}</div></details>`; }).join("") : `<div class="empty">No suggestions yet. They appear after you approve a reorder.</div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ================================================================ History
+const FIELD_NAMES = { min_days_cover: "Ask me when stock will last fewer than (days)", min_qty: "Ask me when fewer than this many units are left", safety_stock_days: "Safety cushion (days)", lookahead_days: "Warn early within (days)",
+  stock_subtract: "Stock taken away from what is on the shelf", stock_add: "Stock added to what is on the shelf", in_transit_stock: "Stock in transit between warehouses", warehouses: "Warehouses that count", check_cron: "When to check stock", approval_expiry_hours: "Close unanswered requests after (hours)",
+  reminder_after_hours: "Remind me after (hours)", max_reminders: "Most reminders", max_alerts_per_run: "Most requests per check", stock_alerts: "Send stock alerts before a reorder request", stock_alert_repeat_days: "Repeat a stock alert after (days)", max_notices_per_run: "Most stock alerts per check", monitor_failures_before_alert: "Warn me after this many failed checks", use_quotations: "Prices from supplier quotations", quotation_max_age_days: "A quotation without an end date counts for (days)",
+  monitor_columns: "Extra columns on Your stock", po_mode: "When I approve a purchase order", weight_cost: "Importance of price", weight_delivery: "Importance of delivery speed", weight_reliability: "Importance of track record", weight_terms: "Importance of time to pay" };
+const val = v => v == null ? "off" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : typeof v === "object" ? JSON.stringify(v) : String(v);
+async function viewHistory() {
+  $("#view").innerHTML = head("History", "What the assistant noticed, what you decided, and every change made to the settings. Open any entry to see the reasoning behind it.") +
+    `<div class="tabs" role="group" aria-label="Show">${[["all", "Everything"], ["alerts", "Stock alerts"], ["changes", "Settings changes"]].map(([k, n]) => `<button class="tab ${state.histTab === k ? "on" : ""}" data-htab="${k}">${n}</button>`).join("")}</div>
+     <section class="card"><div class="card-h"><h2 class="h2">Latest first</h2><span class="muted small">Showing the most recent entries</span></div><div id="tl" class="empty">Loading…</div></section>`;
+  $$("#view [data-htab]").forEach(b => b.addEventListener("click", () => { state.histTab = b.dataset.htab; render(); }));
+  try {
+    const [alerts, audit] = await Promise.all([api("GET", "/api/v1/inventory/alerts?limit=40"), api("GET", "/api/v1/settings/audit?limit=40")]);
+    const ev = [];
+    if (state.histTab !== "changes") alerts.forEach(a => ev.push({ t: a.created_at, dot: a.status === "open" ? (a.severity === "CRITICAL" ? "bad" : "warn") : "off", title: `${a.item_code}: ${({ open: "needs reordering", actioned: "reorder started", snoozed: "you asked to be reminded", dismissed: "you chose to ignore it", resolved: "stock recovered", superseded: "asked again" })[a.status] || a.status}`,
+      body: a.status_note || "", more: a.reasoning }));
+    if (state.histTab !== "alerts") audit.forEach(a => ev.push({ t: a.ts, dot: "off", title: `${a.actor} changed ${a.scope_type === "item" ? "the rule for " + a.scope_key : a.scope_type === "group" ? "the rule for group " + a.scope_key : "a setting"}`,
+      body: `${FIELD_NAMES[a.field] || a.field}: ${val(a.old)} → ${val(a.new)}` }));
+    ev.sort((x, y) => String(y.t).localeCompare(String(x.t)));
+    $("#tl").className = ""; $("#tl").innerHTML = ev.length ? ev.slice(0, 60).map(e => `<div class="tl-item"><span class="tl-dot ${e.dot}"></span><div style="flex:1;min-width:0"><p class="tl-when">${esc(when(e.t))}</p><p class="h3">${esc(e.title)}</p>${e.body ? `<p class="muted">${esc(e.body)}</p>` : ""}${e.more ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:700;color:var(--green-d)">The reasoning, as recorded</summary><pre class="reason">${esc(e.more)}</pre></details>` : ""}</div></div>`).join("") : `<div class="empty">Nothing here yet.</div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ================================================================ Settings
+const CFG = [["reorder", "When to reorder", "How low is too low, and what counts as stock"], ["vendors", "Choosing vendors", "What matters most, and what happens when you approve"],
+  ["reminders", "Reminders and timing", "When to check stock and how long requests wait"], ["seasons", "Busy seasons", "Festivals and sales that change demand"], ["helper", "\"Ask why\" helper", "Answers to your questions about a request"], ["agents", "AI agents", "Morning brief, second opinions, harder questions"],
+  ["access", "Who can do what", "People sign in with ERPNext; ERPNext decides what they can do"]];
+function viewSettings() {
+  const cfg = state.cfg || "reorder", ok = can("settings");
+  $("#view").innerHTML = head("Settings", "Changes apply from the next stock check. You never need to restart anything.") + (ok || cfg === "access" ? "" : `<div class="callout warn">You can look at these settings, but only people with the System Manager role in ERPNext can change them.</div>`) + `
+    <div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start"><div style="flex:1 1 260px;max-width:300px"><nav class="subnav" aria-label="Settings sections">${CFG.map(([k, n, h]) => `<button class="${k === cfg ? "on" : ""}" data-cfg="${k}">${n}<small>${h}</small></button>`).join("")}</nav></div>
+    <div style="flex:999 1 560px;min-width:0"><fieldset class="lock" ${ok || cfg === "access" ? "" : "disabled"}><div id="cfgbody" style="display:flex;flex-direction:column;gap:24px"></div></fieldset></div></div>`;
+  $$("#view [data-cfg]").forEach(b => b.addEventListener("click", () => { state.cfg = b.dataset.cfg; state.basis = null; render(); }));
+  ({ reorder: cfgReorder, vendors: cfgVendors, reminders: cfgReminders, seasons: cfgSeasons, helper: cfgHelper, agents: cfgAgents, access: cfgAccess })[cfg]($("#cfgbody"));
+}
+function saveBar(id, what) { return `<div class="savebar"><span id="${id}note" class="muted">No changes yet.</span><div class="btns"><button class="btn primary" id="${id}" disabled>Save settings</button></div></div>`; }
+function dirty(id, note) { const b = $("#" + id); if (b) b.disabled = false; const n = $("#" + id + "note"); if (n) n.innerHTML = `<b style="color:var(--ink)">You have unsaved changes.</b> ${note || ""}`; }
+
+// ---- When to reorder
+const COLS = [["reserved_qty", "Promised to customers", "Reserved on customer orders (sales orders)", "promised to customers"], ["reserved_qty_for_production", "Set aside for production", "Materials reserved for work orders", "set aside for production"],
+  ["reserved_qty_for_sub_contract", "With subcontractors", "Materials reserved for subcontracting", "with subcontractors"], ["reserved_qty_for_production_plan", "Planned for production", "Materials reserved in a production plan", "planned for production"],
+  ["ordered_qty", "Ordered from vendors, not arrived yet", "Open purchase orders", "ordered from vendors"], ["indented_qty", "Requested inside your company", "Material requests no one has turned into an order yet", "requested inside your company"],
+  ["planned_qty", "Being made", "Production work orders that will produce this item", "being made"],
+  ["in_transit", "On the way between your warehouses", "Stock sitting in a transit warehouse, moving from one of your warehouses to another", "on the way between your warehouses"]];
+// "Take away" makes no sense for stock in transit: it is either already counted as on the shelf, only planned with, or left out.
+const COL_CHOICES = { in_transit: [["shelf", "On the shelf"], ["add", "Add"], ["off", "Ignore"]] };
+const TRANSIT_TO_API = { shelf: "shelf", add: "arriving", off: "ignore" }, TRANSIT_FROM_API = { shelf: "shelf", arriving: "add", ignore: "off" };
+const PRESETS = { rec: ["Stock I can sell (recommended)", { reserved_qty: "sub", reserved_qty_for_production: "sub", reserved_qty_for_sub_contract: "sub", ordered_qty: "add", planned_qty: "add", in_transit: "add" }],
+  shelf: ["Only what is on the shelf", {}], erp: ["Same as ERPNext's projected quantity", { reserved_qty: "sub", reserved_qty_for_production: "sub", reserved_qty_for_sub_contract: "sub", reserved_qty_for_production_plan: "sub", ordered_qty: "add", indented_qty: "add", planned_qty: "add", in_transit: "shelf" }] };
+function cfgReorder(el) {
+  const g = state.global.effective, opts = state.opts;
+  if (!state.basis) { state.basis = { modes: Object.fromEntries(COLS.map(([c]) => [c, c === "in_transit" ? (TRANSIT_FROM_API[g.in_transit_stock || "arriving"] || "add") : (g.stock_subtract || []).includes(c) ? "sub" : (g.stock_add || []).includes(c) ? "add" : "off"])), wh: [...(g.warehouses || [])] }; }
+  const rule = (k, before, after, note, ph) => `<div><div class="rule">${before} <input class="in short num" type="number" min="0" step="any" data-g="${k}" value="${g[k] ?? ""}" placeholder="${ph || "off"}" aria-label="${esc(before)}"> ${after}</div><p class="rule-note">${note}</p></div>`;
+  const chosen = state.basis.wh, whs = opts ? opts.warehouses : [];
+  const mc = (state.system && state.system.monitor_columns) || [];
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">When should I be asked to reorder?</h2><p class="muted small">These rules apply to every item, unless you give one item its own rule on the Your stock page.</p></div></div><div class="card-b" style="gap:22px">
+      ${rule("min_days_cover", "Ask me when stock will last fewer than", "days.", "Example: you sell 20 a day. At 7 days, you are asked when 140 or fewer are left.", "7")}
+      ${rule("min_qty", "Also ask me when fewer than", "units are left.", "Leave it empty if you only want the days rule. Useful for items you must never run below a fixed amount.")}
+      ${rule("safety_stock_days", "When suggesting how much to order, add a safety cushion of", "days of sales.", "Covers late deliveries and busy days.")}
+      ${rule("lookahead_days", "Warn me early if stock may run low within the next", "days.", "The assistant looks at how fast sales are rising and tells you before an item gets close to your limit.")}</div></section>
+    ${opts ? `<section class="card"><div class="card-h"><div><h2 class="h2">What counts as stock you have?</h2><p class="muted small">ERPNext keeps several stock numbers. Choose which ones the assistant should count.</p></div></div><div class="card-b" style="gap:22px">
+      <div><p class="label" style="margin-bottom:8px">Start from a ready-made choice</p><div class="btns">${Object.entries(PRESETS).map(([k, p]) => `<button class="btn sm" data-preset="${k}">${esc(p[0])}</button>`).join("")}</div></div>
+      <div><p class="label">What happens to each ERPNext number</p><p class="muted small" style="margin-bottom:4px">What is on your shelves is always the starting point.</p><div id="rows"></div></div>
+      <div class="formula" aria-live="polite" id="formula"></div>
+      <div><p class="label">Which warehouses count?</p><p class="muted small" style="margin-bottom:6px">${whs.length ? "Tick the ones to count. If you tick none, every warehouse counts." : esc(opts.warehouses_error || "No warehouses found.")}</p>
+        <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0 24px;max-height:300px;overflow:auto">${[...whs, ...chosen.filter(w => !whs.includes(w))].map(w => `<label class="check" style="min-height:44px;align-items:center"><input type="checkbox" data-sw="${esc(w)}" ${chosen.includes(w) ? "checked" : ""}><span>${esc(w)}${whs.includes(w) ? "" : " <span class='muted'>(not found in ERPNext)</span>"}</span></label>`).join("")}</div>
+        <p class="muted small" style="margin-top:6px" id="whnote"></p></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Extra columns on the Your stock page</h2><p class="muted small">The page always shows the item, what is in stock, how long it lasts, your reorder rule and the status. Tick anything you also want to see.</p></div></div>
+      <div class="card-b"><div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 24px">${opts.monitor_columns.map(c => `<label class="check"><input type="checkbox" data-mc="${esc(c.column)}" ${mc.includes(c.column) ? "checked" : ""}><span><b>${esc(MONITOR_HEAD[c.column] || c.label)}</b></span></label>`).join("")}</div></div></section>` : `<section class="card"><div class="card-b"><b>More settings are available after a server restart.</b></div></section>`}
+    ${saveBar("rsave")}`;
+  const dr = () => dirty("rsave", "They apply from the next stock check.");
+  $$("input[data-g]", el).forEach(i => i.addEventListener("input", dr));
+  if (opts) {
+    const rows = $("#rows", el);
+    const paint = () => {
+      rows.innerHTML = COLS.map(([c, name, hint]) => { const m = state.basis.modes[c] || "off"; return `<div class="stockrow"><div class="nm"><b>${esc(name)}</b><small>${esc(hint)}</small></div><div class="segb" role="group" aria-label="${esc(name)}">${(COL_CHOICES[c] || [["sub", "Take away"], ["add", "Add"], ["off", "Ignore"]]).map(([v, t]) => `<button class="${m === v ? "on" : ""}" data-col="${c}" data-v="${v}">${t}</button>`).join("")}</div></div>`; }).join("");
+      const subs = COLS.filter(([c]) => state.basis.modes[c] === "sub").map(c => c[3]), adds = COLS.filter(([c]) => state.basis.modes[c] === "add").map(c => c[3]);
+      const onShelf = state.basis.modes.in_transit === "shelf" ? " plus " + COLS.find(c => c[0] === "in_transit")[3] : "";
+      $("#formula", el).innerHTML = `<div><b>Stock I can sell</b> = on the shelf${onShelf}${subs.length ? " minus " + subs.join(" minus ") : ""}</div><div><b>Stock to plan with</b> = stock I can sell${adds.length ? " plus " + adds.join(" plus ") : ""}</div><div class="muted small" style="margin-top:6px">"Lasts about" uses the stock you can sell. The reorder rules above use the stock to plan with.</div>`;
+      $("#whnote", el).textContent = state.basis.wh.length ? `Counting stock in: ${state.basis.wh.join(", ")}.` : `Counting stock in all ${whs.length} warehouses.`;
+      $$("[data-col]", rows).forEach(b => b.addEventListener("click", () => { state.basis.modes[b.dataset.col] = b.dataset.v; paint(); dr(); }));
+    };
+    paint();
+    $$("[data-preset]", el).forEach(b => b.addEventListener("click", () => { const p = PRESETS[b.dataset.preset][1]; state.basis.modes = Object.fromEntries(COLS.map(([c]) => [c, p[c] || "off"])); paint(); dr(); }));
+    $$("[data-sw]", el).forEach(x => x.addEventListener("change", () => { state.basis.wh = $$("[data-sw]", el).filter(y => y.checked).map(y => y.dataset.sw); paint(); dr(); }));
+    $$("[data-mc]", el).forEach(x => x.addEventListener("change", dr));
+  }
+  $("#rsave").addEventListener("click", async () => {
+    const set = {}; $$("input[data-g]", el).forEach(x => set[x.dataset.g] = x.value === "" ? null : Number(x.value));
+    if (opts) { const m = state.basis.modes; set.stock_subtract = COLS.filter(([c]) => c !== "in_transit" && m[c] === "sub").map(c => c[0]); set.stock_add = COLS.filter(([c]) => c !== "in_transit" && m[c] === "add").map(c => c[0]); set.in_transit_stock = TRANSIT_TO_API[m.in_transit] || "arriving"; set.warehouses = state.basis.wh; }
+    try {
+      await api("PUT", "/api/v1/settings/policy/global/*", { set });
+      if (opts) await api("PUT", "/api/v1/settings/system", { set: { monitor_columns: $$("[data-mc]", el).filter(x => x.checked).map(x => x.dataset.mc) } });
+      toast("Settings saved"); await reload(); state.view = "settings"; state.cfg = "reorder"; render();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ---- Choosing vendors
+const WEIGHTS = [["weight_cost", "Price you pay", "The total including import duty and shipping, compared with the cheapest vendor.", "#0E6B58"], ["weight_delivery", "Delivery speed", "How soon the goods arrive, compared with how soon you run out.", "#1F5FA8"],
+  ["weight_reliability", "Track record", "How often this vendor delivered on time before.", "#B4541A"], ["weight_terms", "Time to pay", "The more days you get to pay, the better.", "#7A3E9D"]];
+// The four "what matters" sliders are shares of 100: whole numbers that add up to exactly `total`, keeping the proportions of `values` (largest-remainder rounding).
+function toShares(values, total = 100) {
+  const sum = values.reduce((a, b) => a + b, 0);
+  const exact = sum > 0 ? values.map(v => v * total / sum) : values.map(() => total / values.length);
+  const out = exact.map(Math.floor);
+  let left = total - out.reduce((a, b) => a + b, 0);
+  exact.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
+  return out;
+}
+// Moving one slider takes from, or gives to, the others in proportion to where they were when the drag began, so they always add up to 100 and the handles show what the
+// percentages say. Dragging back restores the earlier proportions exactly.
+function linkSliders(el, keys) {
+  const get = k => $("#p_" + k, el);
+  let base = keys.map(k => Number(get(k).value));
+  keys.forEach((k, idx) => {
+    get(k).addEventListener("input", () => {
+      const v = Math.min(100, Math.max(0, Math.round(Number(get(k).value))));
+      const others = keys.map((_, i) => i).filter(i => i !== idx);
+      const split = toShares(others.map(i => base[i]), 100 - v);
+      others.forEach((i, n) => { get(keys[i]).value = split[n]; });
+      get(k).value = v;
+    });
+    get(k).addEventListener("change", () => { base = keys.map(kk => Number(get(kk).value)); });
+  });
+}
+function cfgVendors(el) {
+  if (!state.proc) { el.innerHTML = `<section class="card"><div class="card-b"><b>The server does not have the vendor selector yet.</b><p class="muted">Restart it and reload this page.</p></div></section>`; return; }
+  const s = state.proc.effective, f = state.schema.procurement || {}, d = k => esc((f[k] || {}).description || "");
+  const chk = (k, title, hint) => `<label class="check"><input type="checkbox" data-pb="${k}" ${s[k] ? "checked" : ""}><span><b>${title}</b><small>${hint}</small></span></label>`;
+  const num = (k, label, ph, hint) => `<div class="field"><label for="p_${k}">${label}</label><input id="p_${k}" class="in num" data-pn="${k}" type="number" min="0" step="any" value="${s[k] ?? ""}" placeholder="${ph}"><small>${hint}</small></div>`;
+  const w0 = toShares(WEIGHTS.map(([k]) => Number(s[k]) || 0));            // the saved weights as shares of 100
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">What matters most when choosing a vendor?</h2><p class="muted small">Slide each one up or down. The assistant turns the sliders into percentages that add up to 100.</p></div></div><div class="card-b" style="gap:22px">
+      ${WEIGHTS.map(([k, name, hint], wi) => `<div><div style="display:flex;justify-content:space-between;gap:12px"><label class="label" for="p_${k}">${name}</label><b class="num" id="pct_${k}"></b></div><p class="muted small" style="margin-bottom:6px">${hint}</p><input id="p_${k}" class="range" data-p="${k}" type="range" min="0" max="100" step="1" value="${w0[wi]}"></div>`).join("")}
+      <div><div class="bar" id="wbar" role="img" aria-label="Share of each factor"></div><div class="chips" style="margin-top:10px" id="wchips"></div></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Ground rules</h2><p class="muted small">Safeguards so the assistant never suggests something you would not choose.</p></div></div><div class="card-b" style="gap:20px">
+      ${chk("prefer_listed_suppliers", "Prefer vendors listed on the item", "A vendor you have set up as a supplier for this item gets a small boost.")}
+      ${chk("exclude_new_vendors", "Never suggest a vendor I have not ordered from before", "Turn this on if you only trust vendors with a track record. They will still be shown, with the reason they were skipped.")}
+      <div class="grid2">${num("min_vendors", "Compare at least this many vendors", "2", "If fewer have a price on record, the assistant asks you instead of guessing.")}${num("flag_price_jump_pct", "Warn me if a price is this much above usual (%)", "off", "Compared with what that vendor charged you before.")}
+      ${num("history_days", "Look back this many days of past orders", "365", "Used for prices, delivery times and the on-time record.")}${num("fallback_qty", "If the quantity cannot be worked out, suggest", "ask me", "Leave empty to be asked each time.")}${num("snooze_days", "\"Remind me later\" waits this many days", "2", "")}</div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Prices from supplier quotations</h2><p class="muted small">When a vendor has sent you a quotation for an item (a Supplier Quotation in ERPNext), should the comparison use it? You decide.</p></div></div><div class="card-b" style="gap:14px">
+      <label class="check"><input type="radio" name="uq" value="off" data-ps="use_quotations" ${s.use_quotations === "off" ? "checked" : ""}><span><b>No: compare vendors on the price of their last order</b><small>Quotations in ERPNext are ignored. This is how the assistant has always worked.</small></span></label>
+      <label class="check"><input type="radio" name="uq" value="prefer" data-ps="use_quotations" ${s.use_quotations === "prefer" ? "checked" : ""}><span><b>Yes: use a vendor's quotation when it has a valid one</b><small>A quotation that has not run out replaces that vendor's last-order price. A vendor you asked to quote but never ordered from can be compared too. Vendors without a quotation keep their last-order price.</small></span></label>
+      <label class="check"><input type="radio" name="uq" value="only" data-ps="use_quotations" ${s.use_quotations === "only" ? "checked" : ""}><span><b>Only compare vendors that have quoted</b><small>Vendors without a valid quotation are left out, with the reason shown. If nobody has quoted, you are asked what to do instead of the assistant guessing.</small></span></label>
+      <div class="grid2">${num("quotation_max_age_days", "A quotation with no end date counts for (days)", "30", "A quotation with an end date counts until that date. Quotes that are stopped, cancelled or expired never count.")}</div>
+      <p class="muted small">The request always says which price came from a quotation and its number. A vendor you have never ordered from is still left out if "Never suggest a vendor I have not ordered from before" is on. If a quotation was for fewer units than you need, you are warned.</p></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Purchase requisitions first</h2><p class="muted small">For some items your buyer wants a purchase requisition (an ERPNext Material Request) before any order. Name them here. For those items the assistant never offers a direct order.</p></div></div><div class="card-b" style="gap:18px">
+      <div class="field"><label for="rq_groups">Item groups that get a requisition first</label><input id="rq_groups" class="in" data-pl="requisition_first_groups" list="rq_gl" value="${esc((s.requisition_first_groups || []).join(", "))}" placeholder="${esc((state.items.map(i => i.group).filter(Boolean)[0]) || "Fasteners")}"><datalist id="rq_gl">${[...new Set(state.items.map(i => i.group).filter(Boolean))].sort().map(g => `<option value="${esc(g)}">`).join("")}</datalist><small>Separate several with commas. Leave empty if every item can be ordered directly.</small></div>
+      <div class="field"><label for="rq_items">Individual items that get a requisition first</label><input id="rq_items" class="in" data-pl="requisition_first_items" value="${esc((s.requisition_first_items || []).join(", "))}" placeholder="for example FAS-0003, MET-0005"><small>Item codes, separated by commas.</small></div>
+      <p class="muted small">Every other item can still be turned into a requisition by choosing "Create a requisition instead" on the request.</p></div></section>
+    <section class="card"><div class="card-h"><h2 class="h2">When I approve a purchase order</h2></div><div class="card-b" style="gap:14px">
+      <label class="check"><input type="radio" name="po" value="draft" data-ps="po_mode" ${s.po_mode === "draft" ? "checked" : ""}><span><b>Create a draft purchase order in ERPNext for me to check</b><small>Recommended. You review it and submit it in ERPNext. Your name is recorded on the order as the approver. The assistant never submits an order.</small></span></label>
+      <label class="check"><input type="radio" name="po" value="off" data-ps="po_mode" ${s.po_mode === "off" ? "checked" : ""}><span><b>Only remember my decision</b><small>Nothing is created in ERPNext. You place the order yourself.</small></span></label>
+      <div style="border-top:1px solid var(--line2);padding-top:14px"><label class="check"><input type="checkbox" data-pb="require_personal_login" ${s.require_personal_login ? "checked" : ""}><span><b>Only create orders and requisitions under the approver's own ERPNext name</b><small>When you approve in this console, ERPNext shows you as the creator. An approval from WhatsApp or Telegram cannot do that, so with this on it waits until it is approved here. With it off, approvals from your phone are created by the service account and your name is written in the "Approved by" field.</small></span></label></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Import duties and taxes</h2><p class="muted small">You do not type duty rates here. The assistant reads them from ERPNext, so the comparison matches what you will really pay.</p></div></div><div class="card-b" style="gap:20px">
+      ${chk("include_taxes", "Compare vendors on the total cost, including duties and shipping", "Without this, a vendor with a low price but heavy import duty could look cheapest.")}
+      ${chk("include_recoverable_taxes_in_cost", "Also count taxes I can claim back (such as GST) as a cost", "Usually off. These are shown in the comparison but do not change which vendor wins.")}
+      <div class="field" style="max-width:460px"><label for="tx_none">If ERPNext has no tax setup for a vendor</label><select id="tx_none" class="in" data-ps="no_tax_setup"><option value="flag" ${s.no_tax_setup === "flag" ? "selected" : ""}>Compare it anyway, and warn me</option><option value="exclude" ${s.no_tax_setup === "exclude" ? "selected" : ""}>Never suggest that vendor</option></select></div>
+      <div class="why"><b>Where the rates come from in ERPNext</b><ul><li>A <b>Tax Rule</b> picks the right tax template for each vendor, using the vendor, its group, its tax category and your company.</li>
+        <li>The <b>tax template</b> lists the charges. Import duty, freight and insurance count as cost. Taxes you can claim back are shown but not counted.</li><li>An <b>Item Tax Template</b> on the item replaces the rate of a matching charge, the same way ERPNext does.</li>
+        <li>The draft purchase order uses the same template, so ERPNext charges exactly what the comparison showed.</li></ul><p class="muted small" style="margin-top:8px">To change a rate, change it in ERPNext. The next comparison picks it up.</p></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Note to the vendor</h2><p class="muted small">Printed on the purchase order the vendor receives. You see the exact words before you approve.</p></div></div><div class="card-b" style="gap:18px">
+      ${chk("include_vendor_note", "Add a note for the vendor to every purchase order", "")}
+      <div class="field"><label for="p_vn">The note</label><textarea id="p_vn" class="in" data-pt="vendor_note_template" rows="3" maxlength="500">${esc(s.vendor_note_template)}</textarea><small>${d("vendor_note_template")}</small></div>
+      <div class="field"><label for="p_vu">Added when the delivery would arrive after you run out</label><textarea id="p_vu" class="in" data-pt="vendor_note_urgent" rows="2" maxlength="300">${esc(s.vendor_note_urgent)}</textarea></div>
+      <p class="muted small">If the price is above what that vendor usually charges, the note also asks them to confirm it. That sentence is fixed.</p></div></section>${saveBar("vsave")}`;
+  const paint = () => {
+    const raw = {}; WEIGHTS.forEach(([k]) => raw[k] = Number($("#p_" + k, el).value)); const total = Object.values(raw).reduce((a, b) => a + b, 0) || 1;
+    WEIGHTS.forEach(([k]) => $("#pct_" + k, el).textContent = Math.round(raw[k] / total * 100) + "%");
+    $("#wbar", el).innerHTML = WEIGHTS.map(([k, , , col]) => `<div style="height:14px;width:${raw[k] / total * 100}%;background:${col}"></div>`).join("");
+    $("#wchips", el).innerHTML = WEIGHTS.map(([k, n, , col]) => `<span class="chip"><span style="width:12px;height:12px;border-radius:3px;background:${col}"></span>${n} ${Math.round(raw[k] / total * 100)}%</span>`).join("");
+  };
+  paint();
+  linkSliders(el, WEIGHTS.map(([k]) => k));                                  // registered first, so the other sliders have moved before the labels are redrawn
+  $$("[data-p],[data-pb],[data-pn],[data-ps],[data-pt],[data-pl]", el).forEach(x => { x.addEventListener("input", () => { paint(); dirty("vsave", "They apply from the next purchase order suggestion."); }); x.addEventListener("change", () => dirty("vsave", "They apply from the next purchase order suggestion.")); });
+  $("#vsave").addEventListener("click", async () => {
+    const set = {};
+    $$("[data-p]", el).forEach(x => set[x.dataset.p] = Number(x.value)); $$("[data-pb]", el).forEach(x => set[x.dataset.pb] = x.checked);
+    $$("[data-pn]", el).forEach(x => set[x.dataset.pn] = x.value === "" ? null : Number(x.value)); $$("[data-pt]", el).forEach(x => set[x.dataset.pt] = x.value);
+    $$("[data-pl]", el).forEach(x => set[x.dataset.pl] = x.value.split(",").map(v => v.trim()).filter(Boolean));
+    $$("select[data-ps]", el).forEach(x => set[x.dataset.ps] = x.value); $$("input[data-ps]", el).filter(x => x.checked).forEach(x => set[x.dataset.ps] = x.value);
+    try { state.proc = await api("PUT", "/api/v1/settings/procurement", { set }); toast("Settings saved"); cfgVendors(el); } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ---- Reminders and timing: a friendly schedule instead of cron
+function parseCron(c) {
+  let m = /^(\d+) (\d+) \* \* \*$/.exec(c || ""); if (m) return { freq: "daily", time: String(m[2]).padStart(2, "0") + ":" + String(m[1]).padStart(2, "0") };
+  m = /^(\d+) (\d+) \* \* 1-5$/.exec(c || ""); if (m) return { freq: "weekdays", time: String(m[2]).padStart(2, "0") + ":" + String(m[1]).padStart(2, "0") };
+  if (/^0 \* \* \* \*$/.test(c || "")) return { freq: "hourly", time: "06:00" };
+  return { freq: "custom", time: "06:00" };
+}
+function buildCron(freq, time, raw) { const [h, m] = (time || "06:00").split(":").map(Number); return freq === "daily" ? `${m} ${h} * * *` : freq === "weekdays" ? `${m} ${h} * * 1-5` : freq === "hourly" ? "0 * * * *" : raw; }
+function cfgReminders(el) {
+  const sys = state.system, sch = parseCron(sys.check_cron);
+  const n = (k, v) => `<input class="in short num" data-s="${k}" type="number" min="1" value="${v}" aria-label="${esc((FIELD_NAMES[k] || k))}">`;
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">Reminders and timing</h2><p class="muted small">Nothing is ever approved on your behalf. If you do not answer, you get reminded and then the request closes.</p></div></div><div class="card-b" style="gap:22px">
+      <div><div class="rule">Check my stock <select class="in" id="sfreq" aria-label="How often"><option value="daily" ${sch.freq === "daily" ? "selected" : ""}>every day</option><option value="weekdays" ${sch.freq === "weekdays" ? "selected" : ""}>on weekdays only</option><option value="hourly" ${sch.freq === "hourly" ? "selected" : ""}>every hour</option><option value="custom" ${sch.freq === "custom" ? "selected" : ""}>on a custom schedule</option></select>
+        <span id="stimewrap">at <input class="in num" type="time" id="stime" value="${sch.time}" style="width:130px" aria-label="Time of day"></span>
+        <span id="scustwrap"><input class="in" id="scust" value="${esc(sys.check_cron)}" style="width:190px" aria-label="Custom schedule" placeholder="0 6 * * *"></span></div>
+        <p class="rule-note">Times use ${esc(sys.timezone)}. You can still check whenever you like from the Your stock page.<span id="scusthelp"> A custom schedule uses five fields: minute, hour, day of month, month, day of week.</span></p></div>
+      <div><div class="rule">If I do not answer a request, remind me after ${n("reminder_after_hours", sys.reminder_after_hours)} hours, up to ${n("max_reminders", sys.max_reminders)} times.</div></div>
+      <div><div class="rule">Close a request that is still unanswered after ${n("approval_expiry_hours", sys.approval_expiry_hours)} hours.</div><p class="rule-note">A closed request is never approved. If the problem is still there, a new request is sent at the next check.</p></div>
+      <div><label class="check"><input type="checkbox" data-sb="stock_alerts" ${sys.stock_alerts !== false ? "checked" : ""}><span><b>Tell me first when stock is low or needed urgently</b><small>You get an alert that only says what is low and why, before any request to reorder. An early warning stays an alert until the item really needs buying. Switch off to get the reorder request straight away.</small></span></label>
+        <div class="rule" style="margin-top:12px">If an item is still low, repeat its alert after ${n("stock_alert_repeat_days", sys.stock_alert_repeat_days ?? 7)} days. If it gets worse, I am told at once.</div>
+        <div class="rule" style="margin-top:8px">Send me at most ${n("max_notices_per_run", sys.max_notices_per_run ?? 20)} stock alerts per check, the most urgent first.</div></div>
+      <div><div class="rule">Send me at most ${n("max_alerts_per_run", sys.max_alerts_per_run)} requests per check, the most urgent first.</div><p class="rule-note">The rest wait for the next check, so one bad day does not flood your phone.</p></div>
+      <div><div class="rule">Tell me if the stock check fails ${n("monitor_failures_before_alert", sys.monitor_failures_before_alert ?? 3)} times in a row.</div><p class="rule-note">For example when ERPNext is switched off. You get one message saying your stock is not being watched, and it closes by itself when checks work again.</p></div></div></section>${saveBar("ssave")}`;
+  const sync = () => { const f = $("#sfreq", el).value; $("#stimewrap", el).hidden = !(f === "daily" || f === "weekdays"); $("#scustwrap", el).hidden = f !== "custom"; $("#scusthelp", el).hidden = f !== "custom"; };
+  sync();
+  $$("input,select", el).forEach(x => { x.addEventListener("input", () => { sync(); dirty("ssave", "They apply from the next stock check."); }); x.addEventListener("change", sync); });
+  $("#ssave").addEventListener("click", async () => {
+    const set = { check_cron: buildCron($("#sfreq", el).value, $("#stime", el).value, $("#scust", el).value.trim()) };
+    $$("input[data-s]", el).forEach(x => set[x.dataset.s] = Number(x.value));
+    $$("input[data-sb]", el).forEach(x => set[x.dataset.sb] = x.checked);
+    try { await api("PUT", "/api/v1/settings/system", { set }); toast("Settings saved"); await reload(); state.view = "settings"; state.cfg = "reminders"; render(); } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ---- Busy seasons
+function cfgSeasons(el) {
+  if (!state.cal) { el.innerHTML = `<section class="card"><div class="card-b"><b>The server does not have busy seasons yet.</b><p class="muted">Restart it and reload this page.</p></div></section>`; return; }
+  let events = (state.cal.effective.events || []).map(e => ({ ...e })), enabled = !!state.cal.effective.enabled;
+  const groups = [...new Set(state.items.map(i => i.group).filter(Boolean))].sort(), today = new Date().toISOString().slice(0, 10);
+  const draw = () => {
+    el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">Busy seasons</h2><p class="muted small">Festivals and sales when you expect to sell more or less than usual. The assistant uses them when working out how long stock will last and how much to order.</p></div></div><div class="card-b" style="gap:20px">
+        <label class="check"><input type="checkbox" id="calon" ${enabled ? "checked" : ""}><span><b>Take busy seasons into account</b><small>Switch off to plan only from recent sales.</small></span></label>
+        <div class="scroll"><table class="tbl" style="min-width:640px"><thead><tr><th>Season</th><th>Dates</th><th class="r">Sales change</th><th>Applies to</th><th></th></tr></thead><tbody>
+        ${events.map((e, n) => `<tr><td><b>${esc(e.name)}</b><small>${esc(e.kind)}${e.note ? " · " + esc(e.note) : ""}</small></td><td>${esc(e.start)}${e.end !== e.start ? " to " + esc(e.end) : ""}</td><td class="r num" style="${e.uplift_pct < 0 ? "color:var(--red)" : ""}"><b>${e.uplift_pct > 0 ? "+" : ""}${fmt(e.uplift_pct, 1)}%</b></td>
+          <td>${(e.item_groups || []).length || (e.items || []).length ? esc([...(e.item_groups || []), ...(e.items || [])].join(", ")) : "Everything"}</td><td><button class="btn sm danger" data-rm="${n}" aria-label="Remove ${esc(e.name)}">Remove</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No busy seasons yet. Add one below.</td></tr>`}</tbody></table></div>
+        <div class="why"><b>Add a season</b><p class="muted small" style="margin-bottom:12px">Example: Diwali sale, 1 Nov to 12 Nov, +40%. The assistant will then expect 40% more sales on those days.</p>
+          <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))">
+            <div class="field"><label for="ce_name">Name</label><input id="ce_name" class="in" maxlength="80" placeholder="Diwali sale"></div>
+            <div class="field"><label for="ce_kind">What kind</label><select id="ce_kind" class="in"><option value="promotion">Promotion</option><option value="festival">Festival</option><option value="other">Other</option></select></div>
+            <div class="field"><label for="ce_start">First day</label><input id="ce_start" class="in" type="date" value="${today}"></div><div class="field"><label for="ce_end">Last day</label><input id="ce_end" class="in" type="date" value="${today}"></div>
+            <div class="field"><label for="ce_pct">Sales change (%)</label><input id="ce_pct" class="in num" type="number" step="any" placeholder="40"><small>+40 means 40% more. −20 means 20% fewer.</small></div>
+            <div class="field"><label for="ce_groups">Which items</label><input id="ce_groups" class="in" list="ce_gl" placeholder="${esc(groups[0] || "Fasteners")}"><datalist id="ce_gl">${groups.map(g => `<option value="${esc(g)}">`).join("")}</datalist><small>Item groups or item codes, separated by commas. Leave empty for everything.</small></div></div>
+          <div class="field" style="margin-top:14px"><label for="ce_note">Note (only for you)</label><input id="ce_note" class="in" maxlength="300"></div><div class="btns" style="margin-top:14px"><button class="btn" id="ceadd">Add this season</button></div></div></div></section>${saveBar("calsave")}`;
+    $("#calon", el).addEventListener("change", e => { enabled = e.target.checked; dirty("calsave", "They apply from the next stock check."); });
+    $$("[data-rm]", el).forEach(b => b.addEventListener("click", () => { events.splice(Number(b.dataset.rm), 1); draw(); dirty("calsave", "They apply from the next stock check."); }));
+    $("#ceadd", el).addEventListener("click", () => {
+      const name = $("#ce_name", el).value.trim(), pct = $("#ce_pct", el).value, which = $("#ce_groups", el).value.split(",").map(s => s.trim()).filter(Boolean);
+      if (!name) { toast("Give the season a name.", true); return; } if (pct === "" || isNaN(Number(pct))) { toast("Enter the sales change in %, for example 40.", true); return; }
+      if ($("#ce_end", el).value < $("#ce_start", el).value) { toast("The last day is before the first day.", true); return; }
+      const itemSet = new Set(state.items.map(i => i.item_code));
+      events.push({ name, kind: $("#ce_kind", el).value, start: $("#ce_start", el).value, end: $("#ce_end", el).value, uplift_pct: Number(pct), item_groups: which.filter(w => !itemSet.has(w)), items: which.filter(w => itemSet.has(w)), note: $("#ce_note", el).value.trim() });
+      events.sort((a, b) => a.start.localeCompare(b.start)); draw(); dirty("calsave", "They apply from the next stock check.");
+    });
+    $("#calsave", el).addEventListener("click", async () => { try { state.cal = await api("PUT", "/api/v1/settings/module/calendar", { set: { enabled, events } }); toast("Busy seasons saved"); cfgSeasons(el); } catch (e) { toast(e.message, true); } });
+  };
+  draw();
+}
+
+// ---- "Ask why" helper
+function cfgHelper(el) {
+  if (!state.asst) { el.innerHTML = `<section class="card"><div class="card-b"><b>The server does not have the helper yet.</b><p class="muted">Restart it and reload this page.</p></div></section>`; return; }
+  const s = state.asst.effective;
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">"Ask why" helper</h2><p class="muted small">Lets you ask a question about any request, such as "Why this quantity?" or "Why not the vendor in China?".</p></div></div><div class="card-b" style="gap:20px">
+      <label class="check"><input type="checkbox" data-ab="enabled" ${s.enabled ? "checked" : ""}><span><b>Show "Ask why" on requests</b><small>The answers come from a small AI model that runs on this computer. Your stock and supplier data never leave it.</small></span></label>
+      <div id="astatus" class="callout">Checking the helper…</div>
+      <div class="why"><b>How answers are checked before you see them</b><ul><li>The model only sees the numbers recorded for that request. Nothing else.</li><li>An answer is shown only if every number in it comes from those records or from your question.</li>
+        <li>The same question always gets the same answer, so it never changes its mind.</li><li>If the records do not answer your question, you see "I do not have enough information to answer that." The model is never allowed to guess.</li></ul></div>
+      <details><summary style="cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center">Technical settings</summary><div class="grid2" style="margin-top:12px">
+        <div class="field"><label for="a_model">Model name</label><input id="a_model" class="in" data-at="model" value="${esc(s.model)}"></div><div class="field"><label for="a_url">Where the model runs</label><input id="a_url" class="in" data-at="base_url" value="${esc(s.base_url)}"><small>The address of Ollama on this computer.</small></div>
+        <div class="field"><label for="a_to">Wait up to (seconds)</label><input id="a_to" class="in num" data-an="timeout_seconds" type="number" min="10" value="${s.timeout_seconds}"><small>The first question after a restart can be slow.</small></div>
+        <div class="field"><label for="a_max">Longest answer (characters)</label><input id="a_max" class="in num" data-an="max_answer_chars" type="number" min="100" value="${s.max_answer_chars}"></div></div>
+        <label class="check" style="margin-top:16px"><input type="checkbox" data-ab="allow_remote" ${s.allow_remote ? "checked" : ""}><span><b>Let it use a model on another computer</b><small>Leave this off to keep your data on this computer. If you turn it on, the facts in each request are sent to that computer.</small></span></label></details></div></section>${saveBar("asave")}`;
+  api("GET", "/api/v1/assistant/status").then(st => {
+    const box = $("#astatus", el);
+    if (!st.reachable) { box.className = "callout bad"; box.innerHTML = `<b>The helper is not running.</b> Nothing answers at ${esc(st.base_url)}. Start Ollama on this computer.`; }
+    else if (!st.model_installed) { box.className = "callout bad"; box.innerHTML = `<b>The model "${esc(st.model)}" is not installed.</b> Installed: ${esc((st.models || []).join(", ") || "none")}.`; }
+    else box.innerHTML = `<b>Ready.</b> The model "${esc(st.model)}" is installed and running.`;
+  }).catch(e => { $("#astatus", el).textContent = e.message; });
+  $$("input", el).forEach(x => { x.addEventListener("input", () => dirty("asave", "They apply straight away.")); x.addEventListener("change", () => dirty("asave", "They apply straight away.")); });
+  $("#asave").addEventListener("click", async () => {
+    const set = {}; $$("[data-ab]", el).forEach(x => set[x.dataset.ab] = x.checked); $$("[data-at]", el).forEach(x => set[x.dataset.at] = x.value.trim()); $$("[data-an]", el).forEach(x => set[x.dataset.an] = Number(x.value));
+    try { state.asst = await api("PUT", "/api/v1/settings/module/assistant", { set }); toast("Settings saved"); cfgHelper(el); } catch (e) { toast(e.message, true); }
+  });
+}
+
+// ---- AI agents (optional: off until switched on)
+function agentBriefHtml(b) {
+  const pill = a => a === "order_now" ? "urgent" : a === "order_soon" ? "soon" : "info";
+  const rows = (b.priorities || []).map(p => `<div class="stockrow" style="align-items:flex-start"><div class="nm"><b style="font-size:18px">${esc(p.item_name || p.item_code)}</b><small>${esc(p.item_code)}</small></div><div style="flex:1 1 320px"><span class="pill ${pill(p.action)}">${esc(p.action_text)}</span><p class="muted" style="margin-top:6px">${esc(p.why)}</p></div></div>`).join("");
+  const watch = (b.watch_outs || []).length ? `<div class="why"><b>Worth a look</b><ul>${b.watch_outs.map(w => `<li><b>${esc(w.item_code)}</b>: ${esc(w.note)}</li>`).join("")}</ul></div>` : "";
+  return `<p class="h3">${esc(b.headline || "")}</p>${rows || `<p class="muted">Nothing needs attention.</p>`}${watch}`;
+}
+async function waitForTask(id, onTick) {
+  for (let i = 0; i < 600; i++) {
+    const t = await api("GET", "/api/v1/agents/tasks/" + encodeURIComponent(id));
+    if (t.status !== "running") return t;
+    if (onTick) onTick(i * 3);
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  throw new Error("It is still working. Check again in a few minutes.");
+}
+// What a hosted model used, as a plain sentence (nothing for a model on this computer: it costs nothing).
+function tokenLine(tokens, model) {
+  if (!tokens || !tokens.hosted) return "";
+  const n = x => Number(x).toLocaleString();
+  const cost = tokens.estimated_cost != null ? ` About ${Number(tokens.estimated_cost).toLocaleString(undefined, { maximumFractionDigits: 4 })} at your prices.` : "";
+  return `Used ${n(tokens.total)} tokens (${n(tokens.input)} in, ${n(tokens.output)} out)${model ? " on " + model : ""}.${cost}`;
+}
+const PROVIDER_TEXT = {
+  ollama: ["This computer (Ollama)", "Runs on this computer. Free, and nothing leaves it. On a laptop without a graphics card an answer takes a minute or more."],
+  anthropic: ["Claude (Anthropic)", "A hosted service. Fast. Billed per token. What the agents read is sent to Anthropic."],
+  openai: ["OpenAI", "A hosted service. Fast. Billed per token. What the agents read is sent to OpenAI."],
+  gemini: ["Gemini (Google)", "A hosted service. Fast. Billed per token. What the agents read is sent to Google."],
+};
+function usageHtml(u, hostedNow) {
+  const n = x => Number(x).toLocaleString(), hm = u.month_hosted, lm = u.month_local, lim = u.monthly_token_limit;
+  const cost = hm.estimated_cost != null ? ` About <b>${Number(hm.estimated_cost).toLocaleString(undefined, { maximumFractionDigits: 4 })}</b> at the prices you entered.` : (hostedNow ? " Enter your provider's prices under Cost control to see an estimate." : "");
+  const bar = lim ? `<div style="height:12px;background:var(--grey-soft);border-radius:6px;overflow:hidden;margin-top:10px"><div style="height:100%;width:${Math.min(100, u.limit_used_percent)}%;background:${u.limit_reached ? "var(--red)" : "var(--green)"}"></div></div>
+    <p class="muted small">${u.limit_used_percent}% of this month's limit of ${n(lim)} tokens.${u.limit_reached ? " The limit is reached: the agents use the plain rules until next month, or until you raise it." : ""}</p>` : "";
+  const rows = (u.by_model || []).map(r => `<tr><td>${esc(r.model || "")}<br><small class="muted">${esc(r.provider)}</small></td><td>${r.hosted ? `<span class="pill soon">hosted</span>` : `<span class="pill ok">this computer</span>`}</td><td>${n(r.tasks)}</td><td>${n(r.input)}</td><td>${n(r.output)}</td><td>${r.estimated_cost != null ? Number(r.estimated_cost).toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td></tr>`).join("");
+  return `<p><b>This month on hosted models:</b> ${n(hm.total)} tokens (${n(hm.input)} in, ${n(hm.output)} out) in ${n(hm.tasks)} ${hm.tasks === 1 ? "task" : "tasks"}.${cost}</p>${bar}
+    <p class="muted small" style="margin-top:6px">A token is about three-quarters of a word. Hosted providers bill input and output tokens separately. Models on this computer used ${n(lm.total)} tokens this month and cost nothing.</p>
+    ${rows ? `<div class="scroll" style="margin-top:8px"><table class="tbl"><thead><tr><th>Model</th><th>Where</th><th>Tasks</th><th>In</th><th>Out</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted small">Last ${u.days} days.</p>` : `<p class="muted small">Nothing has been used in the last ${u.days} days.</p>`}`;
+}
+async function cfgAgents(el) {
+  el.innerHTML = `<section class="card"><div class="card-b"><p class="muted">Loading…</p></div></section>`;
+  let s, st, pv, brief, usage;
+  try { [s, st, pv, brief, usage] = await Promise.all([api("GET", "/api/v1/settings/module/agents"), api("GET", "/api/v1/agents/status?check=true"), api("GET", "/api/v1/agents/privacy"), api("GET", "/api/v1/agents/brief"), api("GET", "/api/v1/agents/usage")]); }
+  catch (e) { el.innerHTML = `<section class="card"><div class="card-b"><b>The server does not have the AI agents yet.</b><p class="muted">Restart it and reload this page. (${esc(e.message)})</p></div></section>`; return; }
+  const v = s.effective, provs = st.providers || [], cur = v.provider || "ollama", curP = provs.find(p => p.id === cur) || { label: cur, hosted: false };
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(v.daily_brief_cron || ""), custom = !!(v.daily_brief_cron && !m);
+  const time = m ? String(m[2]).padStart(2, "0") + ":" + String(m[1]).padStart(2, "0") : "09:00", mc = st.model_check || {};
+  const status = !st.package_installed ? `<div class="callout bad"><b>One more package is needed.</b> ${esc(st.install_hint || "")}</div>`
+    : !v.enabled ? `<div class="callout">The agents are off. Nothing is sent to any AI model.</div>`
+    : st.hosted && st.key_configured === false ? `<div class="callout bad"><b>No API key for ${esc(st.provider_label)}.</b> Add <code>${esc(st.key_variable)}=your-key</code> to the .env file and restart. Until then you get the plain version of everything.</div>`
+    : mc.reachable === false ? `<div class="callout bad"><b>${st.hosted ? esc(st.provider_label) + " did not accept the request." : "The AI model is not running."}</b> ${esc(mc.error || "Nothing answers at " + st.model_server + ". Start Ollama on this computer.")} Until it works you get the plain version of everything.</div>`
+    : mc.model_installed === false ? `<div class="callout bad"><b>The model "${esc(st.model)}" is not available${st.hosted ? " to this key" : ""}.</b> ${esc((mc.models || []).slice(0, 12).join(", ") || "none")}${(mc.models || []).length > 12 ? " …" : ""}</div>`
+    : `<div class="callout"><b>Ready.</b> The model "${esc(st.model)}" ${st.hosted ? "at " + esc(st.provider_label) + " will be used. Your data leaves this computer; tokens are billed by them" : "is installed" + (st.leaves_this_server ? ", on another computer" : " and runs on this computer")}.</div>`;
+  const list = (title, items) => `<div class="why"><b>${esc(title)}</b><ul>${items.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`;
+  const where = pv.data_leaves_this_server ? `<div class="callout warn"><b>Your data leaves this computer.</b> ${esc(pv.where_it_goes)}</div>` : `<div class="callout"><b>Nothing leaves this computer.</b> ${esc(pv.where_it_goes)}</div>`;
+  const ok = can("decide");
+  const cards = provs.map(p => { const t = PROVIDER_TEXT[p.id] || [p.label, ""]; return `<label class="check"><input type="radio" name="prov" value="${p.id}" ${p.id === cur ? "checked" : ""}><span><b>${esc(t[0])}</b> ${p.hosted ? `<span class="pill soon">hosted, billed per token</span>` : `<span class="pill ok">free, stays here</span>`}<small>${esc(t[1])}</small></span></label>`; }).join("");
+  const keyBox = p => p.key_configured ? `<div class="callout"><b>API key found.</b> It is read from <code>${esc(p.key_source || p.key_variable)}</code> and is never shown or stored here. Whatever it is billed for goes to the account that key belongs to${p.key_source === p.key_variable ? `: if you set it for another tool and want this application's use kept apart, use <code>${esc(p.own_variable)}</code> for a key of its own` : ""}.</div>`
+    : `<div class="callout warn"><b>No API key yet.</b> Create a key in your ${esc(p.label)} account, add the line <code>${esc(p.key_variable)}=your-key</code> to the <code>.env</code> file in the Stock Assistant folder, then restart the Stock Assistant (or <code>${esc(p.own_variable)}</code> if you want a key used by this application only). The key is never typed into this screen.</div>`;
+  const consent = p => `<label class="check"><input type="checkbox" id="g_consent_${p.id}" ${p.id === cur && v.allow_remote ? "checked" : ""}><span><b>I understand that what the agents read is sent to ${esc(p.label)}</b><small>It is the list under "What is sent to the AI model" below. ${esc(p.label)} bills you per token under your own account. Nothing is sent until the agents are switched on.</small></span></label>`;
+  const panels = provs.map(p => `<div data-pp="${p.id}" style="display:${p.id === cur ? "flex" : "none"};flex-direction:column;gap:14px">
+      <div class="field"><label for="g_model_${p.id}">Model</label><input id="g_model_${p.id}" class="in" data-model="${p.id}" value="${esc(p.id === cur ? v.model : "")}" placeholder="${esc(p.model)}"><small>Leave empty to use ${esc(p.model)}. Model names change: press Check connection to see what is available to you.${p.hosted ? "" : " It must support tool calling."}</small></div>
+      ${p.hosted ? keyBox(p) + consent(p) : ""}
+      <div><button class="btn" type="button" data-check="${p.id}">Check connection</button><div data-checkout="${p.id}" style="margin-top:10px"></div></div></div>`).join("");
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">AI agents</h2><p class="muted small">Two helpers that read your ERPNext data. You stay in charge.</p></div></div><div class="card-b" style="gap:20px">
+      <label class="check"><input type="checkbox" data-gb="enabled" ${v.enabled ? "checked" : ""}><span><b>Let the AI agents help</b><small>Off by default. They need a language model: one on this computer, or a hosted one you choose below.</small></span></label>${status}
+      <div class="why"><b>What they do, and what they cannot do</b><ul><li><b>The inventory agent</b> writes a morning brief: what needs attention first, and anything that looks odd.</li>
+        <li><b>The purchasing agent</b> gives a second opinion on an order request, and answers questions about stock, vendors and orders that the Ask page cannot place.</li>
+        <li>They can look things up and write a few sentences. They <b>cannot order, approve, pay or change a setting</b>. You still press Create order.</li>
+        <li>Every number they write is checked against ERPNext's figures before you see it. If a check fails you get the plain version instead, and it says so.</li></ul></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Where does the AI model run?</h2><p class="muted small">Choose by what matters to you: cost, speed, or keeping your data here.</p></div></div><div class="card-b" style="gap:18px">${cards}<div style="border-top:1px solid var(--line2);padding-top:16px;display:flex;flex-direction:column;gap:14px">${panels}</div></div></section>
+    <section class="card" id="costcard" style="display:${curP.hosted ? "block" : "none"}"><div class="card-h"><div><h2 class="h2">Cost control</h2><p class="muted small">Hosted models bill per token. These help you see and limit what it costs.</p></div></div><div class="card-b"><div class="grid2">
+      <div class="field"><label for="g_pin">Price per million input tokens</label><input id="g_pin" class="in num" data-gf="price_input_per_million" type="number" min="0" step="any" value="${v.price_input_per_million || ""}" placeholder="0"><small>In your own currency, from your provider's price list. Empty = no estimate.</small></div>
+      <div class="field"><label for="g_pout">Price per million output tokens</label><input id="g_pout" class="in num" data-gf="price_output_per_million" type="number" min="0" step="any" value="${v.price_output_per_million || ""}" placeholder="0"><small>Output tokens usually cost more than input tokens.</small></div>
+      <div class="field"><label for="g_limit">Most tokens per month</label><input id="g_limit" class="in num" data-gn="monthly_token_limit" type="number" min="0" step="1000" value="${v.monthly_token_limit || 0}"><small>At the limit the agents stop using the hosted model and the plain rules answer. 0 = no limit.</small></div></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Tokens used</h2><p class="muted small">What the agents have used, so there are no surprises on the provider's bill.</p></div></div><div class="card-b" id="usagebox">${usageHtml(usage, curP.hosted)}</div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Today's brief</h2><p class="muted small">${brief.stored ? "The latest one" + (brief.started_at ? " (" + esc(when(brief.started_at)) + ")" : "") : "Not written by an agent yet. This is the plain version."}</p></div>
+      <div class="btns">${ok ? `<button class="btn" id="briefnow">${v.enabled ? "Write a new brief now" : "Refresh"}</button>` : ""}</div></div><div class="card-b" style="gap:12px"><div id="briefbox">${agentBriefHtml(brief)}</div>
+      <p class="muted small" id="briefsrc"><span class="pill ${brief.source === "model" ? "ok" : "off"}">${brief.source === "model" ? "Written by the AI, checked" : "Written by rules"}</span> ${brief.note ? esc(brief.note) : ""}</p></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">When should they speak up?</h2><p class="muted small">All optional.</p></div></div><div class="card-b" style="gap:18px">
+      <label class="check"><input type="checkbox" id="g_brief" ${v.daily_brief_cron ? "checked" : ""}><span><b>Write the brief every morning at</b> <input type="time" id="g_time" class="in" style="width:auto;display:inline-block;min-height:40px" value="${time}" ${custom ? "disabled" : ""}><small>${custom ? "A custom schedule is set: " + esc(v.daily_brief_cron) + ". Untick to turn it off." : "On this computer's time zone setting. The agent can take a few minutes."}</small></span></label>
+      <label class="check"><input type="checkbox" data-gb="send_brief" ${v.send_brief ? "checked" : ""}><span><b>Send the brief to the people who approve orders</b><small>On Telegram and WhatsApp. WhatsApp only delivers a plain message while its 24-hour window is open.</small></span></label>
+      <label class="check"><input type="checkbox" data-gb="second_opinion" ${v.second_opinion ? "checked" : ""}><span><b>Add a second opinion to every new order request</b><small>The purchasing agent checks the vendor, timing and quantity, and sends a short note to the same people. It never changes the request.</small></span></label></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">What is sent to the AI model</h2><p class="muted small">So you can decide with open eyes.</p></div></div><div class="card-b" style="gap:16px">${where}${list("Sent", pv.sent_to_the_model)}${list("Never sent", pv.never_sent_to_the_model)}${list("Kept on this computer (" + pv.trace_kept_days + " days for the exact messages)", pv.kept_on_this_server)}</div></section>
+    <section class="card"><div class="card-b"><details><summary style="cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center">Technical settings</summary><div class="grid2" style="margin-top:12px">
+      <div class="field"><label for="g_url">Address of the model service</label><input id="g_url" class="in" data-gt="base_url" value="${esc(v.base_url || "")}" placeholder="the provider's own address"><small>Leave empty for the provider's own. Fill it in for an Ollama on another computer, or a service that speaks the OpenAI protocol.</small></div>
+      <div class="field"><label for="g_to">Wait up to (seconds) for one reply</label><input id="g_to" class="in num" data-gn="timeout_seconds" type="number" min="30" value="${v.timeout_seconds}"></div>
+      <div class="field"><label for="g_steps">Most model replies per task</label><input id="g_steps" class="in num" data-gn="max_steps" type="number" min="1" max="12" value="${v.max_steps}"><small>Every reply costs time, and tokens on a hosted model.</small></div>
+      <div class="field"><label for="g_out">Longest reply (tokens)</label><input id="g_out" class="in num" data-gn="max_output_tokens" type="number" min="64" max="4000" value="${v.max_output_tokens}"><small>Stops a model that never finishes its answer.</small></div>
+      <div class="field"><label for="g_tools">Most lookups per task</label><input id="g_tools" class="in num" data-gn="max_tool_calls" type="number" min="1" max="30" value="${v.max_tool_calls}"></div>
+      <div class="field"><label for="g_keep">Forget what was sent after (days)</label><input id="g_keep" class="in num" data-gn="keep_traces_days" type="number" min="1" max="365" value="${v.keep_traces_days}"></div>
+      <div class="field"><label for="g_mcp">Use another tool server (optional)</label><input id="g_mcp" class="in" data-gt="tools_url" value="${esc(v.tools_url || "")}" placeholder="http://127.0.0.1:8100/mcp"><small>Empty = the built-in tools. Its key is read from ERP_AGENTS_MCP_TOKEN.</small></div></div>
+      <label class="check" style="margin-top:16px"><input type="checkbox" id="g_remote" ${!curP.hosted && v.allow_remote ? "checked" : ""}><span><b>Let an Ollama on another computer be used</b><small>Only for the "This computer" choice. Leave it off to keep your data on this computer. For a hosted provider you confirm in its own box above.</small></span></label></details></div></section>${saveBar("gsave")}`;
+  const chosen = () => $("input[name=prov]:checked", el).value, provOf = id => provs.find(p => p.id === id) || { hosted: false, label: id };
+  $$("input", el).forEach(x => { x.addEventListener("input", () => dirty("gsave", "They apply straight away.")); x.addEventListener("change", () => dirty("gsave", "They apply straight away.")); });
+  $$("input[name=prov]", el).forEach(r => r.addEventListener("change", () => {
+    const id = chosen(), p = provOf(id);
+    $$("[data-pp]", el).forEach(d => { d.style.display = d.dataset.pp === id ? "flex" : "none"; });
+    $("#costcard", el).style.display = p.hosted ? "block" : "none";
+    $("#g_url").value = id === cur ? (v.base_url || "") : "";                    // a custom address belongs to the provider it was set for
+  }));
+  $$("[data-check]", el).forEach(b => b.addEventListener("click", async () => {
+    const id = b.dataset.check, out = $(`[data-checkout="${id}"]`, el), model = $("#g_model_" + id).value.trim();
+    b.disabled = true; out.innerHTML = `<p class="muted small">Checking…</p>`;
+    try {
+      const r = await api("POST", "/api/v1/agents/check", { provider: id, base_url: id === chosen() ? $("#g_url").value.trim() : "", model });
+      const chips = (r.models || []).slice(0, 14).map(x => `<button type="button" class="chipbtn" data-pick="${esc(x)}">${esc(x)}</button>`).join("");
+      out.innerHTML = (!r.reachable ? `<div class="callout bad"><b>Not connected.</b> ${esc(r.error || "")}</div>`
+        : !r.model_installed ? `<div class="callout warn"><b>Connected, but the model "${esc(r.model)}" is not available to this key.</b> Pick one of these:</div>`
+        : `<div class="callout"><b>Connected.</b> The model "${esc(r.model)}" is available.${chips ? " Others you can use:" : ""}</div>`) + (chips && r.reachable ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${chips}</div>` : "");
+      $$("[data-pick]", out).forEach(c => c.addEventListener("click", () => { $("#g_model_" + id).value = c.dataset.pick; dirty("gsave", "They apply straight away."); }));
+    } catch (e) { out.innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; }
+    b.disabled = false;
+  }));
+  $("#gsave").addEventListener("click", async () => {
+    const id = chosen(), p = provOf(id), set = { provider: id };
+    $$("[data-gb]", el).forEach(x => set[x.dataset.gb] = x.checked); $$("[data-gt]", el).forEach(x => set[x.dataset.gt] = x.value.trim()); $$("[data-gn]", el).forEach(x => set[x.dataset.gn] = Number(x.value));
+    $$("[data-gf]", el).forEach(x => set[x.dataset.gf] = Number(x.value) || 0);
+    set.model = $("#g_model_" + id).value.trim();
+    if (p.hosted && !$("#g_consent_" + id).checked) { toast(`Tick the box to confirm that what the agents read is sent to ${p.label}.`, true); return; }
+    set.allow_remote = p.hosted ? true : $("#g_remote").checked;
+    if (!custom || !$("#g_brief").checked) { const [hh, mm] = ($("#g_time").value || "09:00").split(":").map(Number); set.daily_brief_cron = $("#g_brief").checked ? `${mm} ${hh} * * *` : ""; }
+    try { await api("PUT", "/api/v1/settings/module/agents", { set }); toast("Settings saved"); cfgAgents(el); } catch (e) { toast(e.message, true); }
+  });
+  const now = $("#briefnow", el);
+  if (now) now.addEventListener("click", async () => {
+    now.disabled = true; const label = now.textContent;
+    try {
+      const r = await api("POST", "/api/v1/agents/brief");
+      let b = r, tokens = r.tokens, model = r.model;
+      if (r.status === "running") { const t = await waitForTask(r.task_id, secs => { now.textContent = `Working… ${secs}s`; }); b = { ...(t.result || {}), source: (t.result || {}).source, note: t.note || "" }; tokens = (t.result || {}).tokens; model = t.model; }
+      $("#briefbox", el).innerHTML = agentBriefHtml(b);
+      $("#briefsrc", el).innerHTML = `<span class="pill ${b.source === "model" ? "ok" : "off"}">${b.source === "model" ? "Written by the AI, checked" : "Written by rules"}</span> ${esc(b.note || "")}${tokenLine(tokens, model) ? `<br>${esc(tokenLine(tokens, model))}` : ""}`;
+      api("GET", "/api/v1/agents/usage").then(u => { $("#usagebox", el).innerHTML = usageHtml(u, curP.hosted); }).catch(() => { /* the figures refresh next time */ });
+    } catch (e) { toast(e.message, true); }
+    now.disabled = false; now.textContent = label;
+  });
+}
+
+// ---- Who can do what: ERPNext decides
+function cfgAccess(el) {
+  const me = state.me || {}, lv = { settings: "Change settings", decide: "Decide", look: "Look", none: "No access" }[me.level] || me.level;
+  el.innerHTML = `<section class="card"><div class="card-h"><div><h2 class="h2">People sign in with their ERPNext account</h2><p class="muted small">You do not create or manage users in the Stock Assistant. It uses the people and permissions you already have in ERPNext.</p></div></div><div class="card-b"><div class="sub-step">
+      <div><span class="pill info">Step 1</span><p class="h3" style="margin-top:8px">They sign in</p><p class="muted">With the username and password they use for ERPNext. The password goes straight to ERPNext and is never stored here.</p></div>
+      <div><span class="pill info">Step 2</span><p class="h3" style="margin-top:8px">ERPNext says who they are</p><p class="muted">The Stock Assistant asks ERPNext, as that person, for their name, roles and permissions. It trusts nothing else.</p></div>
+      <div><span class="pill info">Step 3</span><p class="h3" style="margin-top:8px">ERPNext's permissions decide</p><p class="muted">What someone may do here follows what ERPNext lets them do. Nothing is set up twice.</p></div>
+      <div><span class="pill info">Step 4</span><p class="h3" style="margin-top:8px">ERPNext stays in charge</p><p class="muted">Disable a user or remove a role in ERPNext, and it applies here within ${15} minutes.</p></div></div></div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Who can do what</h2><p class="muted small">These rules are fixed. Change a person's access by changing their roles in ERPNext.</p></div></div><div class="card-b" style="gap:0">
+      <div class="stockrow" style="align-items:flex-start"><div class="nm"><b style="font-size:18px">Look</b><small>See your stock, orders in progress and the history.</small></div><div style="flex:1 1 320px"><span class="pill info">Anyone who can read Items or Purchase Orders in ERPNext</span></div></div>
+      <div class="stockrow" style="align-items:flex-start"><div class="nm"><b style="font-size:18px">Decide</b><small>Approve or reject reorders and purchase orders, here, on WhatsApp and on Telegram.</small></div><div style="flex:1 1 320px"><span class="pill info">Anyone who can create Purchase Orders in ERPNext</span><p class="muted small" style="margin-top:6px">This is checked so nobody can create, through the Stock Assistant, an order ERPNext would not let them create themselves.</p></div></div>
+      <div class="stockrow" style="align-items:flex-start"><div class="nm"><b style="font-size:18px">Change settings</b><small>Change the rules, vendor choices and reminders.</small></div><div style="flex:1 1 320px"><span class="pill info">Anyone with the System Manager role in ERPNext</span></div></div></div></section>
+    <section class="card"><div class="card-h"><h2 class="h2">You</h2></div><div class="card-b" style="gap:10px"><p><b>${esc(me.full_name || me.user || "")}</b> <span class="muted">${esc(me.user || "")}</span></p>
+      <p>Your level here: <span class="pill ok">${esc(lv)}</span></p>${(me.roles || []).length ? `<p class="muted">Your ERPNext roles: ${esc(me.roles.join(", "))}</p>` : ""}
+      ${me.access_key ? `<div class="callout warn">You are signed in with an access key from the setup file, not with an ERPNext account.</div>` : ""}</div></section>
+    <section class="card"><div class="card-h"><div><h2 class="h2">Who ERPNext shows as the creator</h2><p class="muted small">So you can always see in ERPNext who created an order or requisition.</p></div></div><div class="card-b" style="gap:12px">
+      <p><b>Approved in this console:</b> the order or requisition is created with the approver's own ERPNext login. ERPNext shows them as the creator, checks their permissions, and keeps its own history.</p>
+      <p><b>Approved on WhatsApp or Telegram:</b> ERPNext cannot be signed in as that person from a phone message, so the service account creates it, and the approver's name is written in its "Approved by (Stock Assistant)" field. Turn on "Only create orders and requisitions under the approver's own ERPNext name" under Choosing vendors if you would rather those wait for the console.</p></div></section>
+    <section class="card"><div class="card-h"><h2 class="h2">WhatsApp and Telegram approvals</h2></div><div class="card-b" style="gap:12px"><p>Requests are sent to the people, phone numbers and Telegram chat ids listed in the Stock Assistant setup file. A reply from anybody else is ignored, and nothing changes. The first person to answer settles the request.</p>
+      <p class="muted">A new colleague who writes /start to the Telegram bot gets their own chat id back, to pass on to whoever runs the setup. Telegram needs no message templates and has no 24-hour limit, so alerts always arrive.</p>
+      <p class="muted">Sending them to everyone who can Decide, using the mobile number in their ERPNext profile, is a planned improvement.</p></div></section>`;
+}
+
+start();
+</script>
+</body>
+</html>

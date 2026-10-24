@@ -1,0 +1,115 @@
+# ERP Agents - starter configuration.
+# Secrets are read from environment variables via ${NAME}; never paste tokens into this file.
+# Copy to config/settings.yaml (erp-agents init does this) and edit.
+
+database:
+  path: ./data/erp_agents.db          # SQLite file; back it up like any business data
+
+# ---------------------------------------------------------------- ERP source
+erp:
+  type: mock                          # mock = built-in demo data.  Switch to erpnext when ready.
+  # type: erpnext
+  # url: http://localhost:8080        # your ERPNext site
+  # api_key: ${ERPNEXT_API_KEY}       # key/secret of a dedicated read-only "agent" user
+  # api_secret: ${ERPNEXT_API_SECRET}
+  # warehouses: ["Stores - ABC"]      # optional: only count these warehouses
+  # item_groups: []                   # optional: only monitor these item groups
+  # consumption_voucher_types: ["Delivery Note", "Sales Invoice"]   # what counts as "usage"
+
+# ---------------------------------------------------------------- default thresholds
+# These are the starting values. Admins change them later (CLI `policy`, or the admin API) per
+# item group or per item - those changes are stored in the database and audited.
+policy:
+  min_days_cover: 7                   # alert when stock lasts 7 days or fewer
+  # min_qty: 100                      # alert when stock position <= 100 units (off if omitted)
+  use_lead_time_rule: true            # also alert when cover <= supplier lead time + safety days
+  safety_stock_days: 3
+  default_lead_time_days: 7
+  predictive_enabled: true            # history-based early warnings
+  lookahead_days: 14                  # "will I cross a threshold within 14 days?"
+  target_cover_days: 30               # suggested order size aims for this many days of stock
+
+system:
+  check_cron: "0 6 * * *"             # daily at 06:00
+  timezone: Asia/Kolkata
+  max_alerts_per_run: 20
+  stock_alerts: true                  # send an information-only "low stock / needed urgently" alert BEFORE any reorder request
+  stock_alert_repeat_days: 7          # repeat it for an item that is still low after this many days (a worse level is sent at once)
+  max_notices_per_run: 20             # most stock alerts per check, worst first
+  approval_expiry_hours: 72           # unanswered requests expire (never auto-approved)
+  reminder_after_hours: 24
+  max_reminders: 2
+
+# ---------------------------------------------------------------- approval channels
+# Turn on any combination. Every enabled channel is just a different way to reach the same approval.
+channels:
+  console:
+    enabled: true                     # prints to the terminal (development)
+  inbox:
+    enabled: true                     # in-app inbox: the backend for your future mobile app
+  telegram:
+    enabled: false
+    bot_token: ${TELEGRAM_BOT_TOKEN}  # create a bot with @BotFather, then write /start to it: it answers with your chat id
+    mode: polling                     # polling = works on a laptop, nothing public needed; webhook = Telegram calls a public https URL
+    webhook_secret: ${TELEGRAM_WEBHOOK_SECRET}   # webhook mode only: letters, digits, _ and -
+  whatsapp:
+    enabled: false
+    access_token: ${WHATSAPP_TOKEN}
+    phone_number_id: ${WHATSAPP_PHONE_NUMBER_ID}
+    app_secret: ${WHATSAPP_APP_SECRET}           # verifies Meta's webhook signatures
+    verify_token: ${WHATSAPP_VERIFY_TOKEN}       # you choose this string; Meta echoes it on setup
+
+# ---------------------------------------------------------------- who approves
+approvals:
+  strategy: all                       # all = every channel of every approver; failover = first that works
+  recipients:
+    - id: owner
+      name: Owner
+      roles: [admin, approver]        # admin can also change settings
+      channels:
+        - { type: console }
+        - { type: inbox }
+        # - { type: telegram, address: "123456789" }     # your own Telegram chat id (a private chat; groups are not supported)
+        # - { type: whatsapp, address: "919800000000" }  # number with country code, no "+"
+
+# ---------------------------------------------------------------- API access (for admin UI / mobile app)
+auth:
+  # People sign in with their ERPNext username and password (erp.type: erpnext). What they may do follows ERPNext's own
+  # permissions. These keys are the emergency way in (and for the CLI): keep them long and random.
+  # erpnext_login: true          # false switches ERPNext sign-in off
+  # access_keys: local           # who may use the keys below: local (only on the server machine; the default with ERPNext sign-in),
+  #                              # anywhere (also through a tunnel), or off. Ordinary users never need a key.
+  # session_hours: 12            # how long a sign-in lasts
+  # recheck_minutes: 15          # how soon a disabled user / removed role stops working here
+  # min_key_length: 24           # a shorter key (or the documented demo key) is accepted only on the server machine, never through a tunnel or proxy
+  tokens:
+    # - { token: "${ERP_AGENTS_OWNER_TOKEN}", user: owner, roles: [admin, approver] }
+    # - { token: "${ERP_AGENTS_VIEWER_TOKEN}", user: accountant, roles: [viewer] }
+
+server:
+  host: 127.0.0.1
+  port: 8100
+  # remote_access: full          # full = console, sign-in and API are reachable through a tunnel/proxy; webhooks_only = ONLY the channel webhooks are
+  #                              # (everything else answers 404 to anybody not at this machine)
+  # docs: false                  # true publishes the interactive API documentation at /docs
+
+# ---------------------------------------------------------------- AI agents and the MCP server (optional; see docs/AGENTS.md and docs/PRIVACY.md)
+# Needs:  pip install "erp-agents[agents]"   and a model that supports tool calling, for example:  ollama pull llama3.1
+# These are the starting values. The same choices are on the Settings > AI agents screen, which overrides this file.
+# agents:
+#   enabled: false               # nothing is sent to any model until this is true
+#   provider: ollama             # ollama (a model on this computer, free) | anthropic (Claude) | openai | gemini. A hosted one needs its key in the .env file
+#                                # (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY) and allow_remote: true, and is billed per token by the provider
+#   model: ""                    # empty = a suggested model (llama3.1, claude-haiku-5-5, gpt-4o-mini, gemini-2.5-flash); model names change, so check yours
+#   base_url: ""                 # empty = the provider's own address (Ollama: http://127.0.0.1:11434). Fill in for an Ollama elsewhere or an OpenAI-compatible service
+#   allow_remote: false          # true confirms that what the agents read may be sent to a hosted provider (or an Ollama on another machine)
+#   price_input_per_million: 0   # your provider's price per million input tokens, in your currency, to see an estimated cost (0 = no estimate)
+#   price_output_per_million: 0
+#   monthly_token_limit: 0       # most tokens per month on a hosted model; at the limit the plain rules answer instead (0 = no limit)
+#   daily_brief_cron: ""         # for example "0 9 * * *" writes the stock brief every morning
+#   send_brief: false            # also send it to the approvers on Telegram / WhatsApp
+#   second_opinion: false        # the purchasing agent adds a short note to each new order request
+# mcp:
+#   stdio_role: viewer           # for `erp-agents mcp` (Claude Desktop etc.): viewer = look only, approver = may also prepare an order request
+#   http: false                  # true serves the tools at /mcp on the console's port; callers sign in like the API
+#   allowed_hosts: []            # other host names the endpoint may be reached under (a proxy or tunnel); empty = this machine only

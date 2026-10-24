@@ -1,0 +1,84 @@
+# Live ERPNext configuration. Use with:  erp-agents --config config/settings.erpnext.yaml serve
+# Secrets come from environment variables (never paste them in this file):
+#   $env:ERPNEXT_API_KEY="..."; $env:ERPNEXT_API_SECRET="..."
+database:
+  path: ./data/erp_agents_erpnext.db     # separate from the demo database so mock alerts do not mix in
+
+erp:
+  type: erpnext
+  url: http://localhost:8080
+  api_key: ${ERPNEXT_API_KEY}
+  api_secret: ${ERPNEXT_API_SECRET}
+  company: Test Trading Co               # the company new purchase orders and requisitions are created for (required when ERPNext has more than one company)
+  # warehouses: ["Stores - ABC"]          # optional: only count these warehouses
+  # item_groups: []                       # optional: only monitor these item groups
+  # consumption_voucher_types: ["Delivery Note", "Sales Invoice"]   # add "Stock Entry" if you consume raw material that way
+
+policy:
+  min_days_cover: 7
+  use_lead_time_rule: true
+  safety_stock_days: 3
+  default_lead_time_days: 7
+  predictive_enabled: true
+  lookahead_days: 14
+  target_cover_days: 30
+
+system:
+  check_cron: "0 * * * *"                # hourly; change it on the Approvals screen later
+  timezone: Asia/Kolkata
+
+channels:
+  console:
+    enabled: true
+  inbox:
+    enabled: true
+  telegram:
+    enabled: "${TELEGRAM_BOT_TOKEN}"        # on only when TELEGRAM_BOT_TOKEN is set in .env (create the bot with @BotFather; README section 5b)
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    mode: ${TELEGRAM_MODE:-polling}         # polling: works on this PC, nothing public needed.  webhook: Telegram calls /webhooks/telegram through the tunnel
+    webhook_secret: ${TELEGRAM_WEBHOOK_SECRET}      # only for webhook mode: letters, digits, _ and - (the tunnel check)
+  whatsapp:
+    enabled: "${WHATSAPP_TOKEN}"            # on only when WHATSAPP_TOKEN is set in the environment
+    access_token: ${WHATSAPP_TOKEN}
+    phone_number_id: ${WHATSAPP_PHONE_NUMBER_ID}
+    app_secret: ${WHATSAPP_APP_SECRET}      # verifies Meta's webhook signatures
+    verify_token: ${WHATSAPP_VERIFY_TOKEN}  # any string you choose; paste the same one into Meta's webhook setup
+    template_name: ${WHATSAPP_TEMPLATE_NAME}        # optional: approved template used outside the 24h window
+    template_language: ${WHATSAPP_TEMPLATE_LANGUAGE:-en}
+    kind_templates:                                   # purchase-order requests use their own template (different buttons)
+      procurement.po: ${WHATSAPP_PO_TEMPLATE_NAME}    # empty = no template for them (needs your 24h window to be open)
+      procurement.pr: ""                              # purchase REQUISITION requests: plain messages only (the order template's buttons say "Create order")
+      procurement.manual: ""                          # plain messages only
+      procurement.order: ""                           # the Change quantity / Change vendor / Cancel order message after Create order: plain messages only (needs your 24h window to be open)
+      inventory.alert: ${WHATSAPP_ALERT_TEMPLATE_NAME}   # information-only stock alerts (buttons: Got it / Remind me later / Details); empty = plain messages only
+      inventory.monitor_down: ""                      # "stock is not being watched" warning: plain messages only
+
+approvals:
+  strategy: all
+  recipients:
+    - id: owner
+      name: Owner
+      roles: [admin, approver]
+      channels:
+        - { type: console }
+        - { type: inbox }
+        - { type: telegram, address: "${OWNER_TELEGRAM_CHAT_ID}" }   # the number the bot sends you when you write /start to it
+        - { type: whatsapp, address: "${OWNER_WHATSAPP_NUMBER}" }    # digits only, with country code, no "+"
+
+auth:
+  # People sign in with their ERPNext user. This key is only the administrator's emergency way in (and the CLI). There is NO fallback value:
+  # if ERP_AGENTS_OWNER_TOKEN is not set in .env the key simply does not exist. Use a long random one (24+ characters).
+  # A shorter key, or the documented demo one, is accepted only on this machine, never through the tunnel.
+  min_key_length: 24
+  tokens:
+    - { token: "${ERP_AGENTS_OWNER_TOKEN}", user: owner, roles: [admin, approver] }
+
+server:
+  host: 127.0.0.1
+  port: 8100
+  # What a visitor arriving through the tunnel / proxy can reach:
+  #   full           - the console, the sign-in and the API, as well as the channel webhooks (needed if staff use the app away from this machine)
+  #   webhooks_only  - ONLY the channel webhooks (WhatsApp / Telegram) and a plain liveness check; everything else answers 404.
+  #                    Recommended when people use the console on this machine or the office network, and the tunnel exists only for Meta.
+  remote_access: full
+  # docs: false                  # true publishes the interactive API documentation at /docs (it lists every route to anybody who asks)

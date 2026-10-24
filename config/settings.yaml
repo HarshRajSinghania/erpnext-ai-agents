@@ -1,0 +1,41 @@
+# Local demo configuration: built-in mock ERP, so you can try the UI with no ERPNext.
+# The default token below is for local use only: it is accepted only on this machine and is refused through a tunnel or proxy.
+# Set ERP_AGENTS_OWNER_TOKEN (24+ characters) to use your own, and keep the server on 127.0.0.1.
+database:
+  path: ./data/erp_agents.db
+
+erp:
+  type: mock
+
+policy:
+  min_days_cover: 7
+  use_lead_time_rule: true
+  safety_stock_days: 3
+  default_lead_time_days: 7
+  predictive_enabled: true
+  lookahead_days: 14
+  target_cover_days: 30
+
+channels:
+  console:
+    enabled: true
+  inbox:
+    enabled: true
+
+approvals:
+  strategy: all
+  recipients:
+    - id: owner
+      name: Owner
+      roles: [admin, approver]
+      channels:
+        - { type: console }
+        - { type: inbox }
+
+auth:
+  tokens:
+    - { token: "${ERP_AGENTS_OWNER_TOKEN:-demo-owner-token}", user: owner, roles: [admin, approver] }
+
+server:
+  host: 127.0.0.1
+  port: 8100
