@@ -80,6 +80,21 @@ id carries over unchanged). The tools, the runtime and the checks have no thread
 HTTP libraries (rule 2) are confined to the edges: `erp/erpnext.py`, `auth/erpnext.py`, the Telegram and WhatsApp channels and `assistant/llm.py`. `fastapi` is
 imported only by `api/app.py`, `apscheduler` only by `scheduler.py`, and the environment is read only by `config.py`: those rules hold.
 
+## Security checks (run before every commit)
+
+```powershell
+python -m pytest -q                     # the whole suite, including tests/test_security_phase1.py
+python -m bandit -r src -q              # static security scan: must report no issue
+python -m pip_audit                     # known vulnerabilities in the installed dependencies
+```
+
+Install the tools with `pip install -e ".[dev,agents]"`. CI runs all three. Rules:
+
+* A bandit finding is fixed, or silenced on that line with `# <why it is safe>  # nosec Bxxx` (the reason goes first: bandit reads everything after `nosec`). Never silence a rule for a whole file or turn one off.
+* A new place that sends a credential (an API key, a token, a password) must use a session that does not follow redirects (`core.netguard.no_redirects`) and send it only to the host it belongs to.
+* Text from outside (a person, a model, the ERP) goes through `core.common.untrusted` before it is put into an error message or a log line; free-text tool arguments have a length cap.
+* A security fix comes with a regression test, and the test is checked by putting the old behaviour back and seeing it fail.
+
 ## Before the first public push (status in [GITHUB_READINESS_REVIEW.md](GITHUB_READINESS_REVIEW.md))
 
 Done: `LICENSE` (GPL-3.0), SPDX licence in `pyproject.toml`, complete `.gitignore`, `SECURITY.md`, `CONTRIBUTING.md`, CI workflow, issue and pull-request templates,

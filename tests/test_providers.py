@@ -47,12 +47,12 @@ class Session:
             raise item
         return Resp(*item)
 
-    def post(self, url, json=None, headers=None, timeout=None):
-        self.calls.append({"method": "POST", "url": url, "body": json, "headers": headers})
+    def post(self, url, json=None, headers=None, timeout=None, **kw):
+        self.calls.append({"method": "POST", "url": url, "body": json, "headers": headers, **kw})
         return self._next()
 
-    def get(self, url, headers=None, timeout=None):
-        self.calls.append({"method": "GET", "url": url, "body": None, "headers": headers})
+    def get(self, url, headers=None, timeout=None, **kw):
+        self.calls.append({"method": "GET", "url": url, "body": None, "headers": headers, **kw})
         return self._next()
 
 

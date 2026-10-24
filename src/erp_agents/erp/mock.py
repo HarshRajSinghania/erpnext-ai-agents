@@ -253,7 +253,7 @@ class MockERP:
 
     # ------------------------------------------------------------------ scenarios
     def _rng(self, code: str) -> random.Random:
-        return random.Random(f"{self.seed}-{code}")
+        return random.Random(f"{self.seed}-{code}")  # repeatable demo data, not security  # nosec B311
 
     def _steady(self, code: str, mean: float, sd: float) -> Callable[[int], float]:
         rng = self._rng(code)

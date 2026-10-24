@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable, Optional
 
-from ..core.common import Clock, iso, utcnow
+from ..core.common import Clock, iso, untrusted, utcnow
 from ..core.policy import AssistantSettings
 from ..core.settings_store import SettingsStore
 from ..core.storage import Database, dumps, loads
@@ -377,7 +377,7 @@ class ChatService:
     # ------------------------------------------------------------------ the public entry points
     def ask(self, question: str, user: str, can_decide: bool, context: Optional[dict[str, Any]] = None, background: bool = False) -> dict[str, Any]:
         """background=True (the web console): a question the rules cannot place starts an AI agent and the answer says 'working' with a task to poll."""
-        question = " ".join((question or "").split())
+        question = untrusted(question or "", 100_000)          # control and invisible characters out; the length rule below still applies
         if not question:
             raise ValueError("Please type a question.")
         if len(question) > MAX_CHAT_QUESTION:
@@ -394,7 +394,7 @@ class ChatService:
             ans = self._by_agent(question, user, can_decide, background) if (plan.intent is None and not plan.near and not plan.items and looks_like_a_question(question)) else None
             ans = ans or self._run(plan, items, can_decide)
         except Exception as exc:  # noqa: BLE001 - ERPNext unreachable, a bad record, ...: tell the person, change nothing
-            log.warning("chat could not answer %r: %s", question, exc)
+            log.warning("chat could not answer %r: %s", untrusted(question, 120), untrusted(exc, 200))
             ans = Answer("error", f"I could not read the data just now ({_short(exc)}). Nothing was changed. Please try again in a moment.", status="error")
             plan = Plan(intent="error")
         out = ans.to_dict()
@@ -420,7 +420,7 @@ class ChatService:
         cfg = self.settings.assistant()
         if not cfg.enabled:
             return {"status": "disabled", "answer": "The AI helper is switched off in Settings.", "facts": []}
-        question = " ".join((question or "").split())[:MAX_CHAT_QUESTION]
+        question = untrusted(question or "", 100_000)[:MAX_CHAT_QUESTION]
         self._throttle(user)
         items = self._items()
         plan = understand(question, items, context)

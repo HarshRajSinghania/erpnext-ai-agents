@@ -21,13 +21,15 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Callable, Optional
 
-from .core.common import Actor
+from .core.common import Actor, untrusted
 from .inventory.agent import on_demand_payload
 
 log = logging.getLogger(__name__)
 
 READ, PREPARE = "read", "prepare"
 MAX_RESULT_CHARS = 7000                     # a tool result is cut here: it all goes into a model's context
+MAX_TEXT_ARG = 300                          # the longest free-text argument a tool accepts (a field may set its own, shorter maxLength)
+MAX_QUOTED = 60                             # how much of a caller's value is quoted back in an error message
 OVERVIEW_TTL_SECONDS = 60
 KIND_WORDS = {"inventory.alert": "stock alert", "inventory.reorder": "reorder suggestion", "procurement.po": "purchase order request", "procurement.pr": "purchase requisition request",
               "procurement.manual": "request needing a decision", "inventory.monitor_down": "warning"}
@@ -46,11 +48,11 @@ class ToolSpec:
         return {"type": "object", "properties": self.properties, "required": list(self.required)}
 
 
-ITEM = {"type": "string", "description": "Item code, for example ELE-0025"}
+ITEM = {"type": "string", "maxLength": 140, "description": "Item code, for example ELE-0025"}
 
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("stock_overview", "Which items need attention (out of stock, low, or running down), worst first, plus the number of items in each state. Start here.",
-             {"group": {"type": "string", "description": "Only this item group"}, "limit": {"type": "integer", "description": "How many items to list (default 10, at most 25)"}}, (), "viewer", READ),
+             {"group": {"type": "string", "maxLength": 140, "description": "Only this item group"}, "limit": {"type": "integer", "description": "How many items to list (default 10, at most 25)"}}, (), "viewer", READ),
     ToolSpec("stock_status", "Stock, usage and days of cover for ONE item: on hand, available, on order, in transit, daily use, trend, lead time, suggested order quantity.",
              {"item_code": ITEM}, ("item_code",), "viewer", READ),
     ToolSpec("usage_history", "Quantity delivered to customers each week for ONE item, oldest first, to see growth, decline, seasons or lumpy demand.",
@@ -65,7 +67,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("prepare_order_request", "Prepare a purchase request for a person to approve: compares vendors and sends the usual request with Create order, Change quantity and Change vendor. "
                                       "It orders NOTHING by itself. Use it only when a person has asked for an order.",
              {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity; leave out to use the suggested quantity"},
-              "reason": {"type": "string", "description": "One sentence: why this order, for the approver"}}, ("item_code", "reason"), "approver", PREPARE),
+              "reason": {"type": "string", "maxLength": MAX_TEXT_ARG, "description": "One sentence: why this order, for the approver"}}, ("item_code", "reason"), "approver", PREPARE),
 )
 SPEC = {t.name: t for t in TOOLS}
 
@@ -106,7 +108,8 @@ def coerce_arguments(spec: ToolSpec, args: dict[str, Any]) -> tuple[dict[str, An
     for key, val in (args or {}).items():
         prop = spec.properties.get(key)
         if prop is None:
-            ignored.append(str(key))
+            if len(ignored) < 10:
+                ignored.append(untrusted(key, 40))
             continue
         kind = prop.get("type")
         try:
@@ -120,11 +123,21 @@ def coerce_arguments(spec: ToolSpec, args: dict[str, Any]) -> tuple[dict[str, An
             elif kind == "string":
                 if val is None:
                     continue
-                out[key] = str(val).strip()
+                if not isinstance(val, (str, int, float)):
+                    raise TypeError("not text")
+                text = untrusted(val, 100_000)                  # control and invisible characters removed; nothing cut yet
+                cap = int(prop.get("maxLength") or MAX_TEXT_ARG)
+                if len(text) > cap:
+                    raise ValueError(f"'{key}' is too long: at most {cap} characters")
+                out[key] = text
             else:
                 out[key] = val
-        except (TypeError, ValueError):
-            raise ValueError(f"'{key}' must be {'a whole number' if kind == 'integer' else 'a number' if kind == 'number' else 'text'}, not {val!r}")
+        except ValueError as exc:
+            if "too long" in str(exc):
+                raise
+            raise ValueError(f"'{key}' must be {'a whole number' if kind == 'integer' else 'a number' if kind == 'number' else 'text'}, not {untrusted(repr(val), MAX_QUOTED)}")
+        except TypeError:
+            raise ValueError(f"'{key}' must be {'a whole number' if kind == 'integer' else 'a number' if kind == 'number' else 'text'}, not {untrusted(repr(val), MAX_QUOTED)}")
         if "enum" in prop and out.get(key) not in prop["enum"]:
             raise ValueError(f"'{key}' must be one of {', '.join(prop['enum'])}")
     missing = [k for k in spec.required if out.get(k) in (None, "")]
@@ -152,7 +165,8 @@ class Toolkit:
         error: Optional[str] = None
         result: dict[str, Any]
         if spec is None:
-            result, error = {"error": f"unknown tool '{name}'. Available: {', '.join(SPEC)}"}, "unknown tool"
+            result, error = {"error": f"unknown tool '{untrusted(name, 40)}'. Available: {', '.join(SPEC)}"}, "unknown tool"
+            args = {}                                        # nothing a stranger sent is kept for an unknown tool
         elif not actor.has_role(spec.role):
             result, error = {"error": f"not allowed: '{name}' needs the {spec.role} level in ERPNext"}, "not allowed"
         else:
@@ -162,12 +176,13 @@ class Toolkit:
                 if ignored:
                     result["ignored_arguments"] = ignored
                 if "error" in result:
-                    error = str(result["error"])[:200]
+                    error = untrusted(result["error"], 200)
             except ValueError as exc:
-                result, error = {"error": str(exc)}, str(exc)[:200]
+                result, error = {"error": untrusted(exc, 300)}, untrusted(exc, 200)
+                args = {}                                    # arguments that did not fit the tool are not written to the record
             except Exception as exc:  # noqa: BLE001 - a tool must never take the agent down with it
                 log.exception("tool %s failed", name)
-                result, error = {"error": f"could not do that just now ({type(exc).__name__}: {_clip(exc, 160)})"}, f"{type(exc).__name__}"
+                result, error = {"error": f"could not do that just now ({type(exc).__name__}: {untrusted(exc, 160)})"}, f"{type(exc).__name__}"
         if len(json.dumps(result, default=str)) > MAX_RESULT_CHARS:
             result = {"warning": "result shortened", **_shorten(result)}
         if self.log_call is not None:
@@ -194,7 +209,7 @@ class Toolkit:
         names = {i.code: i for i in items}
         close = difflib.get_close_matches(code.upper(), list(names), n=3, cutoff=0.6)
         close += [i.code for i in items if want and want in i.name.lower() and i.code not in close][:3]
-        return None, {"error": f"no item '{code}'", "did_you_mean": [{"item_code": c, "item_name": names[c].name} for c in close[:5]]}
+        return None, {"error": f"no item '{untrusted(code, MAX_QUOTED)}'", "did_you_mean": [{"item_code": untrusted(c, 140), "item_name": untrusted(names[c].name, 140)} for c in close[:5]]}
 
     def _rows(self) -> list[dict[str, Any]]:
         now = time.monotonic()

@@ -88,8 +88,8 @@ class Conversation:
             log.exception("could not handle a message from %s on %s", recipient.id, event.channel)
             try:
                 channel.send_text(event.sender, "I could not handle that just now. Nothing was changed. Please try again in a moment.")
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - the apology itself failed; nothing more can be done for this person
+                log.debug("could not even send the apology", exc_info=True)
 
     # ------------------------------------------------------------------ one message
     def handle(self, event: InboundEvent, recipient: Recipient, channel: Channel) -> None:

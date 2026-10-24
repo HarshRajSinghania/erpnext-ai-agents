@@ -77,8 +77,9 @@ auth:
   # People sign in with their ERPNext username and password (erp.type: erpnext). What they may do follows ERPNext's own
   # permissions. These keys are the emergency way in (and for the CLI): keep them long and random.
   # erpnext_login: true          # false switches ERPNext sign-in off
-  # access_keys: local           # who may use the keys below: local (only on the server machine; the default with ERPNext sign-in),
-  #                              # anywhere (also through a tunnel), or off. Ordinary users never need a key.
+  # access_keys: local           # who may use the keys below: local (only on the server machine: the default, with or without ERPNext sign-in),
+  #                              # anywhere (any address that can reach the server, a tunnel included: set it only on purpose, start-up warns), or off.
+  #                              # Ordinary users never need a key.
   # session_hours: 12            # how long a sign-in lasts
   # recheck_minutes: 15          # how soon a disabled user / removed role stops working here
   # min_key_length: 24           # a shorter key (or the documented demo key) is accepted only on the server machine, never through a tunnel or proxy

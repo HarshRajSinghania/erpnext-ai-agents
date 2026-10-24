@@ -203,9 +203,11 @@ itself requires to create the document (in a default ERPNext: *Purchase User* **
 read Addresses, which a purchase order links to). Run `erp-agents erp-setup` once: it adds the proposal reference, approver and note
 fields to Purchase Order and Material Request.
 
-**Access keys.** Ordinary users never need one. With ERPNext sign-in on, the keys in `auth.tokens` are accepted only on the server
-machine itself (`auth.access_keys: local`, the default), never through the public tunnel, and the sign-in screen offers them only there.
-`anywhere` or `off` change that.
+**Access keys.** Ordinary users never need one. The keys in `auth.tokens` are accepted only on the server machine itself
+(`auth.access_keys: local`, the default, **with or without ERPNext sign-in: the demo too**), never through the public tunnel, and the sign-in
+screen offers them only there. `off` switches them off. `anywhere` accepts them from any address that can reach the server (the local network, a
+tunnel, a proxy); it must be written in the settings file on purpose, start-up prints a warning while it is set, and the keys should then be long and random.
+An unknown value is treated as `local`.
 
 ### 4d. Stock alerts: told first, asked second
 

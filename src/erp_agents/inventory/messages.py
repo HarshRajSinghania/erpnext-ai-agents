@@ -23,7 +23,7 @@ def build_request(a: Analysis, alert_id: str, policy_sources: Optional[dict[str,
     u = a.uom
     sev = SEV_NAMES[a.severity]
     stats = a.usage
-    assert stats is not None
+    assert stats is not None  # type narrowing: the analysis always fills usage before this runs  # nosec B101
 
     if a.status == STATUS_EARLY:
         title = f"Heads-up: {a.item_name} ({a.item_code}) may need reordering soon"
@@ -111,7 +111,7 @@ def build_request(a: Analysis, alert_id: str, policy_sources: Optional[dict[str,
 
 def _situation(a: Analysis) -> list[str]:
     u, stats = a.uom, a.usage
-    assert stats is not None
+    assert stats is not None  # type narrowing: the analysis always fills usage before this runs  # nosec B101
     situation = []
     stock_line = f"On hand: {_n(a.on_hand)} {u}"
     held = a.on_hand - a.available
@@ -195,7 +195,7 @@ def build_alert_request(a: Analysis, notice_id: str, level: str, request_follows
 def build_details(a: Analysis, sources: Optional[dict[str, str]] = None) -> list[Section]:
     """Every figure behind the recommendation, plus which admin setting each rule came from."""
     stats = a.usage
-    assert stats is not None
+    assert stats is not None  # type narrowing: the analysis always fills usage before this runs  # nosec B101
     numbers = [
         f"As of {_d(a.as_of)}. Available {_n(a.available)} (on hand minus what you subtract), position {_n(a.position)} (available plus what you add) {a.uom}."
         + (f" Warehouses: {', '.join(a.policy['warehouses'])}." if a.policy.get("warehouses") else " All warehouses."),

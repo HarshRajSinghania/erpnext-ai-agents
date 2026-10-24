@@ -6,10 +6,14 @@ broker needed at this scale. `subscribe()` lets in-process agents react immediat
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Callable, Optional
 
 from .common import Clock, iso, short_id, utcnow
 from .storage import Database, dumps, loads
+
+log = logging.getLogger(__name__)
 
 REORDER_NEEDED = "REORDER_NEEDED"
 
@@ -35,7 +39,7 @@ class WorkOrderQueue:
             try:
                 fn(wo)
             except Exception:  # noqa: BLE001 - a bad subscriber must never undo an approved decision
-                pass
+                log.exception("a work-order subscriber failed")
         return wo
 
     def get(self, wo_id: str) -> Optional[dict[str, Any]]:

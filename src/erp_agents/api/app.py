@@ -29,7 +29,8 @@ from ..core.common import Actor
 from ..core.policy import MONITOR_COLUMNS, policy_schema
 from ..core.settings_store import PermissionDenied, SettingsError
 from ..erp.base import DEFAULT_IN_TRANSIT, DEFAULT_STOCK_ADD, DEFAULT_STOCK_SUBTRACT, IN_TRANSIT_LABEL, IN_TRANSIT_MODES, STOCK_COLUMNS
-from .hardening import MIN_KEY_LENGTH, BodyLimit, RemoteAccess, SecurityHeaders, clean_for_log, console_policy, is_local_request, script_hash, weak_key
+from .hardening import (MIN_KEY_LENGTH, BodyLimit, RemoteAccess, SecurityHeaders, access_key_mode, clean_for_log, console_policy, is_local_request, script_hash,
+                        weak_key)
 
 log = logging.getLogger(__name__)
 
@@ -114,10 +115,10 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
         return header[7:] if header.lower().startswith("bearer ") else ""
 
     def key_allowed(request: Request) -> bool:
-        """Access keys (the settings-file keys) are the administrator's emergency way in, not something every user needs.
-        With ERPNext sign-in on they are accepted only from the server machine itself (never through the public tunnel);
-        `auth.access_keys: anywhere` or `off` changes that. Without ERPNext sign-in (the demo) they work as before."""
-        mode = str((ctx.config.get("auth") or {}).get("access_keys") or ("local" if ctx.sessions is not None else "anywhere")).lower()
+        """Access keys (the settings-file keys) are the administrator's emergency way in, not something every user needs. They are accepted only from the
+        server machine itself (never through the public tunnel), with ERPNext sign-in and in the demo alike; `auth.access_keys: anywhere` (set explicitly,
+        and warned about at start-up) or `off` changes that."""
+        mode = access_key_mode(ctx.config.get("auth"))
         if mode == "off":
             return False
         if mode == "anywhere":

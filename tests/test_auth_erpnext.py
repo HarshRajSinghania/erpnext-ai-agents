@@ -234,6 +234,7 @@ def test_the_permission_table_is_read_once_not_on_every_sign_in():
 def world(make_app, clock):
     erp = FakeErp()
     app = make_app(erp=MockERP(today=clock().date()), cfg={"auth": {"tokens": [{"token": "k" * 40, "user": "emergency", "roles": ["viewer", "approver", "admin"]}]}})
+    app.config["auth"].pop("access_keys", None)                       # the shipped default (local only), not the test fixture's convenience
     app.login = ErpNextLogin("http://erp.local", session_factory=erp.session)
     from erp_agents.auth.sessions import SessionStore
     app.clock_s = FakeClock2()

@@ -23,14 +23,28 @@ from urllib.parse import urlparse
 import requests
 
 from ..assistant.llm import SEED, LLMError
-from ..core.policy import LOCAL_HOSTS, PROVIDER_LABELS, AgentSettings
+from ..core.netguard import no_redirects
+from ..core.policy import LOCAL_HOSTS, PROVIDER_LABELS, PROVIDER_URLS, AgentSettings
 
 __all__ = ["LLMError", "Reply", "ToolChatClient", "OllamaToolClient", "OpenAIToolClient", "AnthropicToolClient", "GeminiToolClient", "make_client", "describe", "is_remote",
-           "salvage_tool_call", "KEY_ENV"]
+           "salvage_tool_call", "KEY_ENV", "OFFICIAL_HOSTS", "key_for"]
 
 KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY"}      # what the settings screen tells the owner to add to the .env file
 RETRY_STATUSES = (429, 500, 502, 503, 504, 529)
 RETRY_SLEEP = 2.0                                                                                          # seconds before the first retry, doubled for the second
+# The only host each provider's API key is ever sent to (over https). A custom address (an OpenAI-compatible server, a proxy) never receives a key.
+OFFICIAL_HOSTS = {p: (urlparse(u).hostname or "").lower() for p, u in PROVIDER_URLS.items() if p != "ollama"}
+
+
+def is_official(provider: str, base_url: str) -> bool:
+    """Is this the provider's own API address, over https?"""
+    u = urlparse(base_url)
+    return provider in OFFICIAL_HOSTS and u.scheme == "https" and (u.hostname or "").lower() == OFFICIAL_HOSTS[provider] and u.port in (None, 443)
+
+
+def key_for(provider: str, base_url: str, keys: Optional[dict[str, str]]) -> str:
+    """The key to attach for this address: the provider's key at its own address, nothing anywhere else (Ollama, a custom address)."""
+    return (keys or {}).get(provider, "") if is_official(provider, base_url) else ""
 
 
 @dataclass
@@ -124,10 +138,18 @@ class HostedClient:
     remote = True
 
     def __init__(self, base_url: str, model: str, api_key: str, timeout: float = 300, session: Optional[Any] = None, max_output_tokens: int = 400) -> None:
-        if not api_key and is_remote(base_url):
+        official = is_official(self.provider, base_url)
+        if not official:
+            api_key = ""                                   # a key goes to the provider's own address only, whoever built this client
+            if is_remote(base_url):
+                raise LLMError(f"{KEY_ENV[self.provider]} is sent only to {OFFICIAL_HOSTS[self.provider]}, so another remote address cannot be used with it. Leave the address empty "
+                               "to use the provider itself, or use an OpenAI-compatible server on this computer (it needs no key).")
+        elif not api_key:
             raise LLMError(f"No API key for {PROVIDER_LABELS[self.provider]}: add {KEY_ENV[self.provider]}=... to the .env file next to the config folder and restart the Stock Assistant.")
         self.base_url, self.model, self.api_key, self.timeout, self.max_output_tokens = base_url.rstrip("/"), model, api_key, timeout, max_output_tokens
-        self.session = session or requests.Session()
+        target = urlparse(self.base_url)
+        self._origin = (target.scheme, (target.hostname or "").lower(), target.port)
+        self.session = session or no_redirects(requests.Session())     # belt and braces: every request below also says allow_redirects=False
         self.remote = self.hosted = is_remote(base_url)
         self.tools_known: list[dict[str, Any]] = []
 
@@ -139,15 +161,21 @@ class HostedClient:
         raise NotImplementedError
 
     def _clean(self, text: Any) -> str:
-        return str(text).replace(self.api_key, "***")[:240]
+        return (str(text).replace(self.api_key, "***") if self.api_key else str(text))[:240]
 
     def _request(self, method: str, url: str, body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         label = PROVIDER_LABELS[self.provider]
+        target = urlparse(url)
+        if (target.scheme, (target.hostname or "").lower(), target.port) != self._origin:      # the key header never goes to a second host
+            raise LLMError(f"refused to send a request for {label} to another address")
         for attempt in range(3):
             try:
-                resp = self.session.post(url, json=body, headers=self._headers(), timeout=self.timeout) if method == "POST" else self.session.get(url, headers=self._headers(), timeout=30)
+                resp = (self.session.post(url, json=body, headers=self._headers(), timeout=self.timeout, allow_redirects=False) if method == "POST"
+                        else self.session.get(url, headers=self._headers(), timeout=30, allow_redirects=False))
             except requests.RequestException as exc:
                 raise LLMError(f"could not reach {label}: {self._clean(exc)}") from exc
+            if 300 <= resp.status_code < 400:                # never followed: a redirect would carry the key header to wherever it points
+                raise LLMError(f"{label} answered with a redirect (HTTP {resp.status_code}). Redirects are not followed, so the API key is never sent anywhere else.")
             if resp.status_code in RETRY_STATUSES and attempt < 2:
                 time.sleep(RETRY_SLEEP * (attempt + 1))
                 continue
@@ -249,7 +277,7 @@ class AnthropicToolClient(HostedClient):
     ANSWER_TOOL = "answer"
 
     def _headers(self) -> dict[str, str]:
-        return {"x-api-key": self.api_key, "anthropic-version": self.VERSION, "content-type": "application/json"}
+        return {**({"x-api-key": self.api_key} if self.api_key else {}), "anthropic-version": self.VERSION, "content-type": "application/json"}
 
     def _models(self) -> list[str]:
         data = self._request("GET", f"{self.base_url}/v1/models?limit=100")
@@ -335,7 +363,7 @@ class GeminiToolClient(HostedClient):
         self.model = self.model.removeprefix("models/")
 
     def _headers(self) -> dict[str, str]:
-        return {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
+        return {**({"x-goog-api-key": self.api_key} if self.api_key else {}), "Content-Type": "application/json"}
 
     def _models(self) -> list[str]:
         data = self._request("GET", f"{self.base_url}/v1beta/models?pageSize=200")
@@ -422,7 +450,7 @@ def make_client(cfg: AgentSettings, keys: Optional[dict[str, str]] = None, sessi
     base, model = cfg.effective_base_url(), cfg.effective_model()
     if cfg.provider == "ollama":
         return OllamaToolClient(base, model, cfg.timeout_seconds, session=session, max_output_tokens=cfg.max_output_tokens)
-    return CLIENTS[cfg.provider](base, model, (keys or {}).get(cfg.provider, ""), cfg.timeout_seconds, session=session, max_output_tokens=cfg.max_output_tokens)
+    return CLIENTS[cfg.provider](base, model, key_for(cfg.provider, base, keys), cfg.timeout_seconds, session=session, max_output_tokens=cfg.max_output_tokens)
 
 
 def describe(cfg: AgentSettings, keys: Optional[dict[str, str]] = None) -> dict[str, Any]:
@@ -431,7 +459,8 @@ def describe(cfg: AgentSettings, keys: Optional[dict[str, str]] = None) -> dict[
     remote = is_remote(base)
     hosted = cfg.provider != "ollama" and remote           # billed per token and out of your hands; an OpenAI-protocol server on this computer is neither
     return {"provider": cfg.provider, "provider_label": PROVIDER_LABELS[cfg.provider], "model": cfg.effective_model(), "base_url": base, "hosted": hosted, "remote": remote,
-            "key_needed": hosted, "key_configured": bool((keys or {}).get(cfg.provider)) if hosted else None, "key_variable": KEY_ENV.get(cfg.provider)}
+            "key_needed": hosted, "key_configured": bool((keys or {}).get(cfg.provider)) if hosted else None, "key_variable": KEY_ENV.get(cfg.provider),
+            "key_sent": is_official(cfg.provider, base)}
 
 
 def salvage_tool_call(content: str, names: set[str]) -> Optional[tuple[str, dict[str, Any]]]:

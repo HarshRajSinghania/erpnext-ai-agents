@@ -108,3 +108,18 @@ def test_unknown_arguments_are_still_refused(capsys):
             parse_cli(build_parser(), argv)
         assert exc.value.code == 2
     assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def test_the_python_3_10_split_is_put_back_together(monkeypatch):
+    """On Python 3.10 and 3.11 argparse hands `min_qty=5 min_days_cover=null` back as unrecognised when they follow the options (21 Oct review, blocker 5).
+    Only Python 3.14 is installed here, so the 3.10 split is reproduced exactly: the field list comes back empty and the fields come back as leftovers."""
+    from erp_agents.cli import build_parser, parse_cli
+    parser = build_parser()
+    real = parser.parse_known_args
+
+    def like_python_310(argv=None, namespace=None):
+        args, _ = real(["policy", "set", "--scope", "item", "--key", "BOLT-M8"])
+        return args, ["min_qty=5", "min_days_cover=null"]
+    monkeypatch.setattr(parser, "parse_known_args", like_python_310)
+    a = parse_cli(parser, ["policy", "set", "--scope", "item", "--key", "BOLT-M8", "min_qty=5", "min_days_cover=null"])
+    assert a.scope == "item" and a.key == "BOLT-M8" and a.values == ["min_qty=5", "min_days_cover=null"]

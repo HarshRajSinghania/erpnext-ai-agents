@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover
 
 from urllib.parse import quote
 
+from ..core.netguard import no_redirects
 from .base import STOCK_COLUMNS, DailyUsage, ItemInfo, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, RequisitionDraft, StockInfo, TaxRow, TaxSetup, VendorOffer
 
 log = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class ERPNextClient:
                 retry = Retry(total=3, backoff_factor=0.5, status_forcelist=(429, 500, 502, 503, 504), allowed_methods=("GET",))
                 session.mount("http://", HTTPAdapter(max_retries=retry))
                 session.mount("https://", HTTPAdapter(max_retries=retry))
+            no_redirects(session)                          # the API key and secret travel in every request's header
         self.session = session
         self.session.headers.update({"Authorization": f"token {api_key}:{api_secret}", "Accept": "application/json"})
 

@@ -48,12 +48,12 @@ class NoticeRepo:
 
     def latest_active(self, item_code: str) -> Optional[Notice]:
         marks = ",".join("?" * len(ACTIVE))
-        r = self.db.query_one(f"SELECT * FROM stock_notices WHERE item_code=? AND status IN ({marks}) ORDER BY created_at DESC, rowid DESC LIMIT 1", (item_code, *ACTIVE))
+        r = self.db.query_one(f"SELECT * FROM stock_notices WHERE item_code=? AND status IN ({marks}) ORDER BY created_at DESC, rowid DESC LIMIT 1", (item_code, *ACTIVE))  # only "?" placeholders are formatted in  # nosec B608
         return _row(r) if r else None
 
     def active_for_item(self, item_code: str) -> list[Notice]:
         marks = ",".join("?" * len(ACTIVE))
-        return [_row(r) for r in self.db.query(f"SELECT * FROM stock_notices WHERE item_code=? AND status IN ({marks})", (item_code, *ACTIVE))]
+        return [_row(r) for r in self.db.query(f"SELECT * FROM stock_notices WHERE item_code=? AND status IN ({marks})", (item_code, *ACTIVE))]  # only "?" placeholders are formatted in  # nosec B608
 
     def set_approval(self, nid: str, approval_id: str) -> None:
         self.db.execute("UPDATE stock_notices SET approval_id=?, updated_at=? WHERE id=?", (approval_id, iso(self.clock()), nid))

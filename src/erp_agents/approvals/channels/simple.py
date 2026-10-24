@@ -1,11 +1,14 @@
 """Console (development) and Inbox (backend for your own mobile app) channels."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Optional
 
 from ..models import ApprovalRecord, DeliveryResult
 from ..render import render_plain
 from .base import Channel
+
+log = logging.getLogger(__name__)
 
 
 class ConsoleChannel(Channel):
@@ -52,8 +55,8 @@ class InboxChannel(Channel):
         if self.push_hook:
             try:
                 self.push_hook(record, address)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - the inbox already has the request; a failing push hook must not lose it
+                log.exception("the inbox push hook failed")
         return DeliveryResult(ok=True, external_id=record.id)
 
     def send_text(self, address: Optional[str], text: str) -> DeliveryResult:

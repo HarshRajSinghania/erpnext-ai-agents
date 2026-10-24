@@ -24,6 +24,7 @@ from typing import Any, Mapping, Optional
 
 import requests
 
+from ...core.netguard import no_redirects
 from ..models import ApprovalRecord, ApprovalRequest, DeliveryResult, InboundEvent
 from ..render import render_whatsapp, truncate
 from .base import Channel, decode_action, encode_action, safe_equals
@@ -85,7 +86,7 @@ class WhatsAppChannel(Channel):
         self.access_token = access_token
         self.app_secret = app_secret
         self.verify_token = verify_token
-        self.http = http or requests.Session()
+        self.http = http or no_redirects(requests.Session())          # the access token is in every request's header
         self.url = f"{api_base.rstrip('/')}/{api_version}/{phone_number_id}/messages"
 
     # ---------------------------------------------------------------- low level

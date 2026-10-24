@@ -51,6 +51,27 @@ def is_local_request(request: Any) -> bool:
     return client in ("127.0.0.1", "::1") and not looks_proxied(request.headers) and hostname_of(request.headers.get("host", "")) in LOOPBACK
 
 
+ACCESS_KEY_MODES = ("local", "anywhere", "off")
+
+
+def access_key_mode(auth_cfg: Optional[dict]) -> str:
+    """Who may use the access keys from the settings file: 'local' (only on the server machine: the default, with or without ERPNext sign-in), 'anywhere' (any address
+    that can reach the server; must be set explicitly) or 'off'. An unknown value is treated as the safe default."""
+    value = str((auth_cfg or {}).get("access_keys") or "local").strip().lower()
+    return value if value in ACCESS_KEY_MODES else "local"
+
+
+def access_key_warning(auth_cfg: Optional[dict], has_keys: bool) -> Optional[str]:
+    """The line to print at start-up when access keys are accepted from any address."""
+    value = str((auth_cfg or {}).get("access_keys") or "").strip().lower()
+    if value and value not in ACCESS_KEY_MODES:
+        return f"WARNING: auth.access_keys is '{value[:20]}', which is not one of local, anywhere, off: access keys are accepted only on this machine."
+    if has_keys and access_key_mode(auth_cfg) == "anywhere":
+        return ("WARNING: auth.access_keys is 'anywhere': the access keys in the settings file are accepted from ANY address that can reach this server "
+                "(the local network, a tunnel, a proxy). Anybody who learns a key gets that key's roles. Use long random keys, or set access_keys: local.")
+    return None
+
+
 def weak_key(token: str, min_length: int = MIN_KEY_LENGTH) -> bool:
     return len(token) < min_length or token.lower() in KNOWN_DEFAULT_TOKENS
 

@@ -343,7 +343,7 @@ def analyze_item(
 def _evaluate_rules(a: Analysis, policy: Policy, rate: float, lead_trigger: float) -> None:
     u = a.uom
     stats = a.usage
-    assert stats is not None
+    assert stats is not None  # type narrowing: the analysis always fills usage before this runs  # nosec B101
 
     def add_rule(code: str, enabled: bool, threshold: Optional[float], value: Optional[float], tripped: bool, label: str) -> None:
         a.rules.append({"rule": code, "enabled": enabled, "threshold": threshold, "value": value, "tripped": tripped, "label": label})
@@ -414,7 +414,7 @@ def _evaluate_rules(a: Analysis, policy: Policy, rate: float, lead_trigger: floa
 
 def _predict(a: Analysis, policy: Policy, lead_trigger: float, windows: Sequence[Window] = (), today: Optional[date] = None) -> None:
     stats = a.usage
-    assert stats is not None
+    assert stats is not None  # type narrowing: the analysis always fills usage before this runs  # nosec B101
     if not policy.predictive_enabled:
         return
     if stats.data_days < policy.min_history_days:

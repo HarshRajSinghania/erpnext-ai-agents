@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
@@ -20,7 +21,8 @@ from pydantic import ValidationError
 from ..approvals.models import ApprovalRecord
 from ..assistant.chat import MAX_CHAT_QUESTION
 from ..assistant.verify import NOT_ENOUGH
-from ..core.common import Actor
+from ..core.common import Actor, untrusted
+from ..core.netguard import blocked_target
 from ..core.policy import AGENT_PROVIDERS, PROVIDER_LABELS, PROVIDER_MODELS, PROVIDER_URLS, AgentSettings
 from ..procurement.agent import KIND_PO, KIND_PR
 from . import inventory_agent as inventory
@@ -52,6 +54,7 @@ class AgentService:
         self.app = app
         self.client_factory = client_factory or (lambda cfg: make_client(cfg, self._keys()))
         self._lock = threading.Lock()
+        self.resolve: Callable[..., list] = socket.getaddrinfo          # how check() looks up a host name (tests replace it: no network needed)
         try:
             app.agent_log.fail_stale()
         except Exception:  # noqa: BLE001
@@ -107,11 +110,19 @@ class AgentService:
         return out
 
     def check(self, provider: str, base_url: str = "", model: str = "") -> dict[str, Any]:
-        """Does this choice work? Asks the provider which models the key can use (no tokens are spent, and nothing from ERPNext is sent). Works on a choice that is not saved yet."""
+        """Does this choice work? Asks the provider which models the key can use (no tokens are spent, and nothing from ERPNext is sent). Works on a choice that is not saved yet.
+        A hosted provider is always checked at its own address, whatever address the caller sends, so the key cannot be pointed anywhere else; and this server is never
+        made to contact its own machine or private network for a hosted provider, nor a link-local address (a cloud metadata service) for any."""
+        if provider in PROVIDER_URLS and provider != "ollama":
+            base_url = ""
         try:
             probe = AgentSettings(provider=provider, base_url=base_url, model=model, allow_remote=True)      # allow_remote: only the key is sent, to learn which models it can use
         except ValidationError as exc:
             raise ValueError(exc.errors()[0]["msg"].removeprefix("Value error, "))
+        refuse = ("link-local", "reserved") if provider == "ollama" else ("loopback", "link-local", "private", "reserved")
+        problem = blocked_target(probe.effective_base_url(), refuse, resolve=self.resolve)
+        if problem:
+            raise ValueError(f"the model server cannot be checked: {problem}")
         try:
             client = make_client(probe, self._keys())
         except LLMError as exc:
@@ -366,7 +377,7 @@ class AgentService:
 
     # ---------------------------------------------------------------- a question
     def ask_plan(self, question: str, actor: Actor) -> Plan:
-        question = " ".join((question or "").split())
+        question = untrusted(question, 100_000)                  # control and invisible characters out; the length rule below still applies
         if not question:
             raise ValueError("Please type a question.")
         if len(question) > MAX_CHAT_QUESTION:

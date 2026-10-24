@@ -56,7 +56,7 @@ class AlertRepo:
 
     def open_for_item(self, item_code: str) -> list[Alert]:
         marks = ",".join("?" * len(OPEN_STATES))
-        rows = self.db.query(f"SELECT * FROM alerts WHERE item_code=? AND status IN ({marks})", (item_code, *OPEN_STATES))
+        rows = self.db.query(f"SELECT * FROM alerts WHERE item_code=? AND status IN ({marks})", (item_code, *OPEN_STATES))  # only "?" placeholders are formatted in  # nosec B608
         return [_to_alert(r) for r in rows]
 
     def list(self, status: Optional[str] = None, item_code: Optional[str] = None, limit: int = 100) -> list[Alert]:

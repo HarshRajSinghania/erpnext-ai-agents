@@ -1,5 +1,6 @@
 # Local demo configuration: built-in mock ERP, so you can try the UI with no ERPNext.
-# The default token below is for local use only: it is accepted only on this machine and is refused through a tunnel or proxy.
+# The default token below is for local use only: it is accepted only on this machine and is refused through a tunnel or proxy
+# (auth.access_keys defaults to "local" in the demo too; "anywhere" has to be written down on purpose and is warned about at start-up).
 # Set ERP_AGENTS_OWNER_TOKEN (24+ characters) to use your own, and keep the server on 127.0.0.1.
 database:
   path: ./data/erp_agents.db

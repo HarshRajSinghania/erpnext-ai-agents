@@ -40,7 +40,7 @@ class AgentLog:
     # ---------------------------------------------------------------- tokens used (what a hosted provider bills for)
     def tokens_since(self, since: datetime, hosted_only: bool = True) -> int:
         """Input plus output tokens of the tasks started at or after `since` (by default only those that went to a hosted model)."""
-        row = self.db.query_one("SELECT COALESCE(SUM(COALESCE(prompt_tokens,0) + COALESCE(output_tokens,0)), 0) AS n FROM agent_tasks WHERE started_at >= ?" + (" AND remote=1" if hosted_only else ""), (iso(since),))
+        row = self.db.query_one("SELECT COALESCE(SUM(COALESCE(prompt_tokens,0) + COALESCE(output_tokens,0)), 0) AS n FROM agent_tasks WHERE started_at >= ?" + (" AND remote=1" if hosted_only else ""), (iso(since),))  # two fixed strings, the value is bound  # nosec B608
         return int(row["n"])
 
     def usage(self, since: datetime) -> dict[str, Any]:

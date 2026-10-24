@@ -11,7 +11,7 @@ from .approvals.channels.base import Channel
 from .approvals.channels.registry import build_channels
 from .approvals.models import Recipient
 from .approvals.router import ApprovalRouter
-from .api.hardening import MIN_KEY_LENGTH, weak_key
+from .api.hardening import MIN_KEY_LENGTH, access_key_warning, weak_key
 from .auth.erpnext import ErpNextLogin
 from .auth.sessions import LoginThrottle, SessionStore
 from .approvals.service import ApprovalService
@@ -134,6 +134,9 @@ def build_app(
                         "Set a long random one (at least %d characters) in .env to use it remotely.", t.get("user"), MIN_KEY_LENGTH)
 
     auth_cfg = cfg.get("auth") or {}
+    warning = access_key_warning(auth_cfg, bool(tokens))
+    if warning:
+        log.warning(warning)
     if login is None and isinstance(erp, ERPNextClient) and auth_cfg.get("erpnext_login", True):
         login = ErpNextLogin(erp.base_url)
     sessions = SessionStore(login, ttl_seconds=float(auth_cfg.get("session_hours", 12)) * 3600,

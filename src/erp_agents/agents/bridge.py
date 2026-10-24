@@ -30,7 +30,7 @@ def compact_schema(schema: Any) -> Any:
 
 
 class ToolBridge:
-    def __init__(self, server: Any = None, url: str = "", token: str = "") -> None:
+    def __init__(self, server: Any = None, url: str = "", token: str = "") -> None:  # an empty token means "send none", not a password  # nosec B107
         """server: an MCPServer to call in-process. url (+ token): a remote MCP server over Streamable HTTP."""
         if server is None and not url:
             raise ValueError("a tool server or a tools_url is needed")
@@ -53,18 +53,23 @@ class ToolBridge:
             await self._client.__aexit__(*exc)
             self._client = None
 
+    def _connected(self) -> Client:
+        if self._client is None:
+            raise RuntimeError("the tool bridge is not open: use it with 'async with'")
+        return self._client
+
     async def tools(self, allow: Optional[tuple[str, ...]] = None) -> list[dict[str, Any]]:
         """[{name, description, parameters}] for the tools the agent may use (in the allowlist's order), as the model should see them."""
-        assert self._client is not None
-        listed = {t.name: t for t in (await self._client.list_tools()).tools}
+        self._connected()
+        listed = {t.name: t for t in (await self._connected().list_tools()).tools}
         names = [n for n in (allow if allow is not None else tuple(listed)) if n in listed]
         return [{"name": n, "description": listed[n].description or "", "parameters": compact_schema(copy.deepcopy(listed[n].input_schema))} for n in names]
 
     async def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """The tool's result, or {"error": "..."} - a failed tool is something the model should read, not an exception."""
-        assert self._client is not None
+        client = self._connected()
         try:
-            res = await self._client.call_tool(name, arguments)
+            res = await client.call_tool(name, arguments)
         except Exception as exc:  # noqa: BLE001 - a broken tool server must not take the task down
             return {"error": f"the tool server could not run '{name}' ({type(exc).__name__})"}
         if res.is_error:

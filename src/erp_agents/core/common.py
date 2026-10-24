@@ -1,6 +1,7 @@
 """Small shared helpers: clock, ids, roles/actors, number formatting."""
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,6 +23,18 @@ def parse_dt(text: str | None) -> datetime | None:
         return None
     dt = datetime.fromisoformat(text)
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+# Characters that can forge a log line or hide what text really says: C0/C1 controls (line breaks, escape sequences), zero-width characters, and the bidi overrides
+# that make text display in a different order than it is stored ("Trojan Source").
+_INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060-\u2064\u2066-\u2069\ufeff]")
+
+
+def untrusted(value: object, limit: int = 80) -> str:
+    """Text that came from outside (a person, a model, the ERP's item names) made safe to quote in an error message or a log line: control and invisible characters
+    become spaces, whitespace is collapsed, and it is cut to `limit` characters with an ellipsis. Letters of any language are kept."""
+    text = " ".join(_INVISIBLE.sub(" ", str(value if value is not None else "")).split())
+    return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "\u2026"
 
 
 def short_id(n: int = 10) -> str:

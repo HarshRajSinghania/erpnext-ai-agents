@@ -3,7 +3,7 @@
 Run these in order. Tick the **Result** column and note anything odd. Cases marked **(EXPECTED TO FAIL
 today)** describe correct behaviour that the code does not have yet; they are your acceptance test for the fix.
 
-Conventions: PowerShell, folder `C:\ERP\erp-agents`, virtual environment active. `$cfg` is the live config.
+Conventions: PowerShell, the repository folder, virtual environment active. `$cfg` is the live config.
 
 ```powershell
 $cfg = "config\settings.erpnext.yaml"

@@ -1,6 +1,6 @@
 # Publishing plan: GitHub first, then the Frappe Cloud Marketplace
 
-Status of the code on 18 Oct 2026 (reviewed from `C:\ERP\erp-agents`): **295 automated tests pass**.
+Status of the code on 18 Oct 2026 (reviewed from the repository folder): **295 automated tests pass**.
 Inventory monitor, vendor selector (procurement), landed-cost comparison, demand calendar, approval
 channels (console, inbox, Telegram, WhatsApp), the "Ask why" assistant and the web console exist.
 Everything that talks to a live system (ERPNext, WhatsApp, Telegram) has only been tested against fakes.
@@ -35,7 +35,7 @@ Everything that talks to a live system (ERPNext, WhatsApp, Telegram) has only be
 
 ## 2. Phase 1: GitHub (about 1 day after the blockers)
 
-1. **Clean the folder** (PowerShell, in `C:\ERP\erp-agents`):
+1. **Clean the folder** (PowerShell, in the repository folder):
    ```powershell
    Add-Content .gitignore "`ntools/testdata/manifest.jsonl`ntools/testdata/*.log`n*.db`n.vscode/`n.env.*`n!.env.example"
    git init -b main

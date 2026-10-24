@@ -426,6 +426,10 @@ def cmd_serve(args) -> int:
     host = args.host or srv.get("host", "127.0.0.1")
     mode = str(srv.get("remote_access", "full")).lower()
     print(f"Remote access: {'only the channel webhooks are reachable through a tunnel or proxy' if mode == 'webhooks_only' else 'the console and API are reachable through a tunnel or proxy (server.remote_access: webhooks_only closes them)'}.")
+    from .api.hardening import access_key_warning
+    warning = access_key_warning(app.config.get("auth"), bool(app.tokens))
+    if warning:
+        print(warning)
     if host not in ("127.0.0.1", "::1", "localhost"):
         print(f"WARNING: listening on {host}, not only on this machine. Anybody who can reach that address can reach the sign-in page.")
     uvicorn.run(api, host=host, port=args.port or int(srv.get("port", 8100)), log_level="info", server_header=False)
@@ -533,7 +537,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     for stream in (sys.stdout, sys.stderr):      # old Windows code pages must not crash on the emoji/bullets in messages
         try:
             stream.reconfigure(errors="replace")
-        except Exception:  # noqa: BLE001 - not a real text stream (e.g. under test capture)
+        except Exception:  # noqa: BLE001  # not a real text stream (e.g. under test capture): nothing to reconfigure  # nosec B110
             pass
     args = parse_cli(build_parser(), argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose_log else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")

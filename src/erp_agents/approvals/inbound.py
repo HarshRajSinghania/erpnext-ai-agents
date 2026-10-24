@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .channels.base import Channel
 from .models import DecisionResult, InboundEvent
 from .render import render_plain
+from ..core.common import untrusted
 from .router import ApprovalRouter
 from .service import ApprovalService
 
@@ -22,7 +23,7 @@ def process_inbound(event: InboundEvent, router: ApprovalRouter, service: Approv
     if event.text and not event.approval_id and channel.handle_command(event, recipient is not None):
         return None
     if recipient is None:
-        log.warning("ignored %s action from unknown sender %s", event.channel, event.sender)
+        log.warning("ignored %s action from unknown sender %s", untrusted(event.channel, 20), untrusted(event.sender, 40))
         channel.acknowledge(event, "You are not registered to answer these requests.")
         return None
 

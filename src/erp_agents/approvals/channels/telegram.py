@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import requests
 
+from ...core.netguard import no_redirects
 from ..models import ApprovalRecord, DeliveryResult, InboundEvent
 from ..render import render_html, truncate
 from .base import Channel, decode_action, encode_action, safe_equals
@@ -50,7 +51,7 @@ class TelegramChannel(Channel):
         self.token = bot_token
         self.webhook_secret = webhook_secret or None
         self.mode = str(mode).lower()
-        self.http = http or requests.Session()
+        self.http = http or no_redirects(requests.Session())          # the bot token is in every URL
         self.api = f"{api_base.rstrip('/')}/bot{bot_token}"
         self._offset = 0
         self._replied: dict[str, float] = {}

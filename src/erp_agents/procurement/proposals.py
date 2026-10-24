@@ -65,7 +65,7 @@ class ProposalRepo:
 
     def open_for_item(self, item_code: str) -> list[Proposal]:
         marks = ",".join("?" for _ in OPEN_STATUSES)
-        return [_row(r) for r in self.db.query(f"SELECT * FROM proposals WHERE item_code=? AND status IN ({marks})", (item_code, *OPEN_STATUSES))]
+        return [_row(r) for r in self.db.query(f"SELECT * FROM proposals WHERE item_code=? AND status IN ({marks})", (item_code, *OPEN_STATUSES))]  # only "?" placeholders are formatted in  # nosec B608
 
     def snoozed_due(self) -> list[Proposal]:
         now = iso(self.clock())
@@ -102,7 +102,7 @@ class ProposalRepo:
                 v = extra[col]
                 params.append(iso(v) if isinstance(v, datetime) else v)
         params.append(pid)
-        self.db.execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=?", params)
+        self.db.execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=?", params)  # the column names come from the fixed tuple above and every value is bound  # nosec B608
 
 
 def _row(r) -> Proposal:

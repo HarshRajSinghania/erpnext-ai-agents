@@ -74,6 +74,7 @@ def make_app(clock):
         base["database"]["path"] = ":memory:"
         base["conversation"] = {"synchronous": True}                    # messages typed to the assistant are handled on the spot, so tests need not wait for a worker thread
         base.setdefault("auth", {})["min_key_length"] = 1             # the tests use short access keys; the length rule has its own tests (test_hardening.py)
+        base["auth"]["access_keys"] = "anywhere"                       # TestClient calls from a non-local address; the real default (local only) has its own tests (test_security_phase1.py)
         base.setdefault("system", {})["stock_alerts"] = False        # these tests exercise the request flow; stock alerts (sent before it) have their own tests
         for k, v in (cfg or {}).items():
             base[k] = {**base.get(k, {}), **v} if isinstance(v, dict) and isinstance(base.get(k), dict) else v
