@@ -114,3 +114,6 @@ server:
 #   stdio_role: viewer           # for `erp-agents mcp` (Claude Desktop etc.): viewer = look only, approver = may also prepare an order request
 #   http: false                  # true serves the tools at /mcp on the console's port; callers sign in like the API
 #   allowed_hosts: []            # other host names the endpoint may be reached under (a proxy or tunnel); empty = this machine only
+# packs:
+#   enabled:                     # which packs are switched on; a pack that is not listed uses its own default (stock_procurement: on; sales and finance: off, they are empty)
+#     stock_procurement: true    # false switches the stock and procurement pack off at once: its tools, routes, commands and scheduled work stop answering, its data stays

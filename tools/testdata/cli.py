@@ -14,8 +14,8 @@ import sys
 import time
 from pathlib import Path
 
-from erp_agents.config import load_config
-from erp_agents.erp.erpnext import ERPNextClient
+from erp_agents.core.config import load_config
+from erp_agents.core.erp.erpnext import ERPNextClient
 
 from .steps import STEPS, Context
 from .writer import Writer, WriterError

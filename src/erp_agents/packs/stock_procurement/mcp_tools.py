@@ -1,0 +1,55 @@
+"""The stock pack's tools on an MCP server, with typed signatures so every client sees the same parameters and descriptions as our own agents do.
+
+The core's `build_mcp_server` calls `register(server, run)` for each pack that is switched on; `run(name, args)` applies the core's checks (who is calling, the role, the pack
+being on, the argument rules) and returns the tool's result or raises a tool error. Needs the optional dependency: pip install "erp-agents[agents]".
+"""
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal, Optional
+
+from mcp.server import MCPServer
+from pydantic import Field
+
+from erp_agents.core.mcp_server import PREPARES, READ_ONLY
+from .tools import SPEC
+
+INSTRUCTIONS = ("Stock Assistant for ERPNext: stock position, usage, vendor comparison and purchase-order status for a small business. "
+                "'prepare_order_request' only sends an approval request to the people who approve orders; "
+                "use it only when a person asked for an order, and tell them it still needs their answer.")
+
+
+def _d(tool: str, prop: str) -> Any:
+    """The parameter's description comes from the one place the tools are defined (tools.py), so a client and our own agents see the same words."""
+    return Field(description=SPEC[tool].properties[prop]["description"])
+
+
+def register(server: MCPServer, run: Any) -> None:
+    @server.tool(name="stock_overview", description=SPEC["stock_overview"].description, annotations=READ_ONLY)
+    async def stock_overview(group: Annotated[Optional[str], _d("stock_overview", "group")] = None, limit: Annotated[int, _d("stock_overview", "limit")] = 10) -> dict[str, Any]:
+        return await run("stock_overview", {"group": group, "limit": limit})
+
+    @server.tool(name="stock_status", description=SPEC["stock_status"].description, annotations=READ_ONLY)
+    async def stock_status(item_code: Annotated[str, _d("stock_status", "item_code")]) -> dict[str, Any]:
+        return await run("stock_status", {"item_code": item_code})
+
+    @server.tool(name="usage_history", description=SPEC["usage_history"].description, annotations=READ_ONLY)
+    async def usage_history(item_code: Annotated[str, _d("usage_history", "item_code")], weeks: Annotated[int, _d("usage_history", "weeks")] = 13) -> dict[str, Any]:
+        return await run("usage_history", {"item_code": item_code, "weeks": weeks})
+
+    @server.tool(name="vendor_options", description=SPEC["vendor_options"].description, annotations=READ_ONLY)
+    async def vendor_options(item_code: Annotated[str, _d("vendor_options", "item_code")], qty: Annotated[float, _d("vendor_options", "qty")]) -> dict[str, Any]:
+        return await run("vendor_options", {"item_code": item_code, "qty": qty})
+
+    @server.tool(name="open_orders", description=SPEC["open_orders"].description, annotations=READ_ONLY)
+    async def open_orders(item_code: Annotated[Optional[str], _d("open_orders", "item_code")] = None,
+                          kind: Annotated[Literal["purchase_order", "requisition"], _d("open_orders", "kind")] = "purchase_order") -> dict[str, Any]:
+        return await run("open_orders", {"item_code": item_code, "kind": kind})
+
+    @server.tool(name="waiting_requests", description=SPEC["waiting_requests"].description, annotations=READ_ONLY)
+    async def waiting_requests(item_code: Annotated[Optional[str], _d("waiting_requests", "item_code")] = None) -> dict[str, Any]:
+        return await run("waiting_requests", {"item_code": item_code})
+
+    @server.tool(name="prepare_order_request", description=SPEC["prepare_order_request"].description, annotations=PREPARES)
+    async def prepare_order_request(item_code: Annotated[str, _d("prepare_order_request", "item_code")], reason: Annotated[str, _d("prepare_order_request", "reason")],
+                                    qty: Annotated[Optional[float], _d("prepare_order_request", "qty")] = None) -> dict[str, Any]:
+        return await run("prepare_order_request", {"item_code": item_code, "qty": qty, "reason": reason})

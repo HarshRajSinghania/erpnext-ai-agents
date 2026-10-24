@@ -35,6 +35,11 @@ class SchemaError(RuntimeError):
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_info (version INTEGER NOT NULL);
 
+CREATE TABLE IF NOT EXISTS pack_schema (
+    pack     TEXT PRIMARY KEY,       -- the pack that owns some tables (core/packs.py)
+    version  INTEGER NOT NULL        -- the shape of its tables: see Database.register_schema
+);
+
 CREATE TABLE IF NOT EXISTS settings_overrides (
     scope_type  TEXT NOT NULL,           -- global | group | item | system
     scope_key   TEXT NOT NULL,
@@ -54,26 +59,6 @@ CREATE TABLE IF NOT EXISTS settings_audit (
     old_json    TEXT,
     new_json    TEXT
 );
-
-CREATE TABLE IF NOT EXISTS alerts (
-    id              TEXT PRIMARY KEY,
-    item_code       TEXT NOT NULL,
-    kind            TEXT NOT NULL,       -- BREACH | EARLY_WARNING
-    severity        INTEGER NOT NULL,
-    status          TEXT NOT NULL,       -- awaiting|snoozed|dismissed|actioned|resolved|superseded|expired|cancelled
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL,
-    analysis_json   TEXT NOT NULL,
-    reasoning_text  TEXT NOT NULL,
-    approval_id     TEXT,
-    snoozed_until   TEXT,
-    suppress_until  TEXT,
-    cooldown_until  TEXT,
-    status_note     TEXT,
-    run_id          TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_alerts_item ON alerts(item_code, created_at);
-CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
 
 CREATE TABLE IF NOT EXISTS approvals (
     id               TEXT PRIMARY KEY,
@@ -114,69 +99,6 @@ CREATE TABLE IF NOT EXISTS work_orders (
     source       TEXT,
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS proposals (
-    id             TEXT PRIMARY KEY,
-    work_order_id  TEXT NOT NULL,
-    item_code      TEXT NOT NULL,
-    status         TEXT NOT NULL,        -- awaiting|ordered|po_failed|snoozed|rejected|manual|acknowledged|expired|cancelled
-    approval_id    TEXT,
-    supplier       TEXT,
-    supplier_name  TEXT,
-    qty            REAL,
-    rate           REAL,
-    total          REAL,
-    po_name        TEXT,
-    ranking_json   TEXT,
-    status_note    TEXT,
-    snoozed_until  TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_proposals_item ON proposals(item_code, created_at);
-CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
-
-CREATE TABLE IF NOT EXISTS assistant_answers (
-    cache_key    TEXT PRIMARY KEY,       -- hash of model + prompt version + facts + question: same input -> same answer
-    approval_id  TEXT NOT NULL,
-    question     TEXT NOT NULL,
-    result_json  TEXT NOT NULL,          -- what the person was shown, including the check outcome
-    model        TEXT NOT NULL,
-    asked_by     TEXT NOT NULL,
-    created_at   TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_assistant_approval ON assistant_answers(approval_id, created_at);
-
-CREATE TABLE IF NOT EXISTS stock_notices (
-    id            TEXT PRIMARY KEY,
-    item_code     TEXT NOT NULL,
-    level         TEXT NOT NULL,         -- LOW | URGENT
-    status        TEXT NOT NULL,         -- sent | acknowledged | snoozed | cleared | superseded
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL,
-    approval_id   TEXT,
-    snoozed_until TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_notices_item ON stock_notices(item_code, created_at);
-
-CREATE TABLE IF NOT EXISTS chat_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    asked_by    TEXT NOT NULL,
-    asked_at    TEXT NOT NULL,
-    question    TEXT NOT NULL,
-    intent      TEXT NOT NULL,
-    status      TEXT NOT NULL,
-    source      TEXT NOT NULL         -- rules | ai-routed
-);
-
-CREATE TABLE IF NOT EXISTS agent_runs (
-    id           TEXT PRIMARY KEY,
-    agent        TEXT NOT NULL,
-    started_at   TEXT NOT NULL,
-    finished_at  TEXT,
-    dry_run      INTEGER NOT NULL DEFAULT 0,
-    summary_json TEXT
 );
 
 -- the AI agents: one row per task (what was asked, what came out, what was sent to the model) and one per tool call
@@ -228,6 +150,7 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._depth = 0
+        self._registered: set[str] = set()
         try:
             self._check_version()                    # before anything is written: a database from a newer version is left exactly as it is
             if path != ":memory:":
@@ -263,30 +186,61 @@ class Database:
                 self._conn.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
 
     def _upgrade(self, found: int) -> None:
-        """Bring an older database up to SCHEMA_VERSION: a copy first (a file database), then one migration at a time, each all-or-nothing."""
-        missing = [v for v in range(found + 1, SCHEMA_VERSION + 1) if v not in MIGRATIONS]
+        """Bring an older core database up to SCHEMA_VERSION."""
+        self._run_migrations("", found, SCHEMA_VERSION, MIGRATIONS, lambda v: self._conn.execute("UPDATE schema_info SET version=?", (v,)))
+
+    def _run_migrations(self, owner: str, found: int, target: int, migrations: dict[int, Callable[[sqlite3.Connection], None]], set_version: Callable[[int], Any]) -> None:
+        """A copy first (a file database), then one migration at a time, each all-or-nothing. `owner` names the pack whose tables are upgraded ("" = the core's)."""
+        what = f"the {owner} tables" if owner else "the database"
+        missing = [v for v in range(found + 1, target + 1) if v not in migrations]
         if missing:
-            raise SchemaError(f"The database has schema version {found} and this version needs {SCHEMA_VERSION}, but there is no migration for version(s) "
+            raise SchemaError(f"{what[0].upper() + what[1:]} have schema version {found} and this version needs {target}, but there is no migration for version(s) "
+                              f"{', '.join(map(str, missing))}. Nothing was changed." if owner else
+                              f"The database has schema version {found} and this version needs {target}, but there is no migration for version(s) "
                               f"{', '.join(map(str, missing))}. Nothing was changed.")
         copy_to = None
         if self.path != ":memory:":
-            copy_to = Path(f"{self.path}.before-schema-{found}-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-            target = sqlite3.connect(str(copy_to))
+            tag = f"{owner}-" if owner else ""
+            copy_to = Path(f"{self.path}.before-schema-{tag}{found}-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+            dest = sqlite3.connect(str(copy_to))
             try:
-                self._conn.backup(target)
+                self._conn.backup(dest)
             finally:
-                target.close()
-            log.warning("upgrading the database from schema %d to %d; a copy of the old one is at %s", found, SCHEMA_VERSION, copy_to)
-        for version in range(found + 1, SCHEMA_VERSION + 1):
+                dest.close()
+            log.warning("upgrading %s from schema %d to %d; a copy of the old one is at %s", what, found, target, copy_to)
+        for version in range(found + 1, target + 1):
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
-                MIGRATIONS[version](self._conn)
-                self._conn.execute("UPDATE schema_info SET version=?", (version,))
+                migrations[version](self._conn)
+                set_version(version)
                 self._conn.execute("COMMIT")
             except BaseException as exc:
                 self._conn.execute("ROLLBACK")
-                raise SchemaError(f"Upgrading the database to schema version {version} failed ({type(exc).__name__}: {str(exc)[:160]}). Nothing was changed"
+                raise SchemaError(f"Upgrading {what} to schema version {version} failed ({type(exc).__name__}: {str(exc)[:160]}). Nothing was changed"
                                   + (f"; the copy made before the upgrade is at {copy_to}." if copy_to else ".")) from exc
+
+    def register_schema(self, owner: str, ddl: str, version: int = 1, migrations: Optional[dict[int, Callable[[sqlite3.Connection], None]]] = None,
+                        added_columns: tuple[tuple[str, str, str], ...] = ()) -> None:
+        """A pack's tables. `ddl` must be safe to repeat (CREATE ... IF NOT EXISTS), so a database made before packs existed, which already has these tables, simply gets a version
+        row. The pack's version is kept in `pack_schema`, apart from the core's: a version newer than this code understands is refused untouched (the pack does not load), an
+        older one is copied aside and upgraded by `migrations` exactly as the core's is. Registering the same owner again is a no-op."""
+        with self._lock:
+            if owner in self._registered:
+                return
+            row = self._conn.execute("SELECT version FROM pack_schema WHERE pack=?", (owner,)).fetchone()
+            found = int(row["version"]) if row else None
+            if found is not None and found > version:
+                raise SchemaError(f"The {owner} tables in this database ({self.path}) have schema version {found}, made by a newer version of the application; this version "
+                                  f"understands up to {version}. Install the newer version, or restore a backup that this version made. Nothing was changed.")
+            if found is not None and found < version:
+                self._run_migrations(owner, found, version, migrations or {}, lambda v: self._conn.execute("UPDATE pack_schema SET version=? WHERE pack=?", (v, owner)))
+            self._conn.executescript(ddl)
+            for table, column, declaration in added_columns:
+                if column not in {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")  # nosec B608 - names come from the pack's own code, not from input
+            if row is None:
+                self._conn.execute("INSERT INTO pack_schema(pack, version) VALUES (?, ?)", (owner, version))
+            self._registered.add(owner)
 
     @contextmanager
     def transaction(self) -> Iterator[None]:

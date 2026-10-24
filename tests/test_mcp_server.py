@@ -9,10 +9,10 @@ pytest.importorskip("mcp", reason="the optional 'agents' extra is not installed"
 from fastapi.testclient import TestClient
 
 from conftest import APPROVER, VIEWER
-from erp_agents.api.app import create_app
-from erp_agents.erp.mock import MockERP
-from erp_agents.mcp_server import build_mcp_server
-from erp_agents.toolkit import SPEC, TOOLS
+from erp_agents.core.api.app import create_app
+from erp_agents.core.erp.mock import MockERP
+from erp_agents.core.mcp_server import build_mcp_server
+from erp_agents.packs.stock_procurement.tools import SPEC, TOOLS
 from mcp import Client
 
 TOKENS = [{"token": "v" * 40, "user": "viewer", "roles": ["viewer"]}, {"token": "o" * 40, "user": "owner", "roles": ["viewer", "approver", "admin"]}]
@@ -248,7 +248,7 @@ def test_an_origin_setting_that_would_switch_the_protection_off_is_refused(make_
 def test_the_application_never_relies_on_the_sdks_default_for_this(toolkit, monkeypatch):
     """The SDK disables the check when it gets no settings (and applies a localhost default only through its `host` argument). Ours are always passed, always enabled."""
     from mcp.server import MCPServer
-    from erp_agents.mcp_server import http_endpoint
+    from erp_agents.core.mcp_server import http_endpoint
     seen = {}
     real = MCPServer.streamable_http_app
 

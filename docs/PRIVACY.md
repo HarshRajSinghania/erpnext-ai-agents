@@ -1,6 +1,6 @@
 # Privacy: what the Stock Assistant reads, keeps and sends
 
-This page is written for the person who runs the app on their own ERPNext, and as the basis for the privacy-policy entry that the Frappe Marketplace asks every app to publish (the draft policy is at the end). The application's code is the source of truth: `src/erp_agents/agents/privacy.py` holds the lists below and `tests/test_privacy.py` fails if a tool starts returning personal data.
+This page is written for the person who runs the app on their own ERPNext, and as the basis for the privacy-policy entry that the Frappe Marketplace asks every app to publish (the draft policy is at the end). The application's code is the source of truth: `src/erp_agents/core/agents/privacy.py` holds the lists below and `src/erp_agents/packs/stock_procurement/tests/test_privacy.py` fails if a tool starts returning personal data.
 
 **In one sentence:** the app has no telemetry and no server of its own; the only places data goes are the messaging channels and the language model *you* switch on, and the language model is off, and on this machine only, until you decide otherwise.
 
@@ -26,7 +26,7 @@ Telegram and WhatsApp are third-party services with their own privacy policies; 
 
 ## What the AI agents send to the model
 
-Exactly what the tools in `toolkit.py` return to the agent, plus the text a person typed.
+Exactly what the tools in `core/toolkit.py` return to the agent, plus the text a person typed.
 
 **Sent**
 - Item codes, names, units and groups of the items an agent looks at.

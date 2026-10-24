@@ -8,15 +8,15 @@ import yaml
 from fastapi.testclient import TestClient
 
 from conftest import OWNER, FakeHTTP
-from erp_agents.api.app import create_app
-from erp_agents.approvals.channels.base import decode_action, encode_action
-from erp_agents.approvals.channels.registry import build_channels
-from erp_agents.approvals.channels.simple import InboxChannel
-from erp_agents.approvals.channels.telegram import REPLY_EVERY, TelegramChannel
-from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
-from erp_agents.approvals.inbound import process_inbound
-from erp_agents.config import expand_env
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.api.app import create_app
+from erp_agents.core.approvals.channels.base import decode_action, encode_action
+from erp_agents.core.approvals.channels.registry import build_channels
+from erp_agents.core.approvals.channels.simple import InboxChannel
+from erp_agents.core.approvals.channels.telegram import REPLY_EVERY, TelegramChannel
+from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
+from erp_agents.core.approvals.inbound import process_inbound
+from erp_agents.core.config import expand_env
+from erp_agents.core.erp.mock import MockERP
 
 TOKEN = "123456789:AAFakeBotTokenForTests_xyz"
 SECRET = "web-hook_secret-1"
@@ -106,7 +106,7 @@ def test_a_registered_person_gets_a_welcome_with_their_id(wired):
 def test_the_bot_answers_a_stranger_only_once_every_half_minute(wired, monkeypatch):
     app, http = wired
     now = [1000.0]
-    monkeypatch.setattr("erp_agents.approvals.channels.telegram.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("erp_agents.core.approvals.channels.telegram.time.monotonic", lambda: now[0])
     for text in ("/start", "hello", "/id", "buy a car"):
         post_webhook(app, msg(text, sender=888))
     assert len(sent_to(http, 888)) == 1                                # the rest are swallowed
@@ -301,7 +301,7 @@ def test_the_live_config_turns_telegram_on_only_when_the_token_exists(monkeypatc
 
 # ------------------------------------------------------------------ the helper commands
 def run_cli(app, action, url=None):
-    from erp_agents.cli import _telegram_action
+    from erp_agents.core.cli import _telegram_action
     return _telegram_action(app, app.channels["telegram"], SimpleNamespace(action=action, url=url))
 
 
@@ -338,7 +338,7 @@ def test_chats_lists_people_who_wrote_to_the_bot_without_marking_anything_read(w
 def test_the_background_poller_answers_messages_survives_errors_and_never_logs_the_token(make_app, clock, caplog):
     import threading
     import time as _time
-    from erp_agents.scheduler import AgentScheduler
+    from erp_agents.core.scheduler import AgentScheduler
 
     class Flaky(FakeHTTP):
         """Telegram that fails twice (the way requests does, with the token in the address), then works."""

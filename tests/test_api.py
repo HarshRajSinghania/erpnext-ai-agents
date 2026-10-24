@@ -2,8 +2,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from erp_agents.api.app import create_app
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.api.app import create_app
+from erp_agents.core.erp.mock import MockERP
 
 
 @pytest.fixture
@@ -149,7 +149,7 @@ def test_unknown_webhook_channel_is_404(ctx):
 
 def test_list_endpoints_bound_the_limit_parameter(make_app):
     from fastapi.testclient import TestClient
-    from erp_agents.api.app import MAX_LIST_LIMIT, create_app
+    from erp_agents.core.api.app import MAX_LIST_LIMIT, create_app
     from conftest import OWNER
     app = make_app(cfg={"auth": {"tokens": [{"token": "t" * 40, "user": "owner", "roles": ["admin", "approver"]}]}})
     client = TestClient(create_app(app))

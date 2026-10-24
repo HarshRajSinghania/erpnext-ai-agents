@@ -7,10 +7,10 @@ import requests
 from fastapi.testclient import TestClient
 
 from conftest import FakeClock
-from erp_agents.api.app import create_app
-from erp_agents.auth.erpnext import CAP_DECIDE, CAP_LOOK, CAP_SETTINGS, ErpNextLogin, LoginError, Verification, derive_caps
-from erp_agents.auth.sessions import LoginThrottle
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.api.app import create_app
+from erp_agents.core.auth.erpnext import CAP_DECIDE, CAP_LOOK, CAP_SETTINGS, ErpNextLogin, LoginError, Verification, derive_caps
+from erp_agents.core.auth.sessions import LoginThrottle
+from erp_agents.core.erp.mock import MockERP
 
 ITEM_PERMS = [{"role": "Stock User", "permlevel": 0, "read": 1}, {"role": "Purchase User", "permlevel": 0, "read": 1, "create": 0},
               {"role": "Purchase Manager", "permlevel": 0, "read": 1}, {"role": "Accounts User", "permlevel": 0, "read": 1},
@@ -236,7 +236,7 @@ def world(make_app, clock):
     app = make_app(erp=MockERP(today=clock().date()), cfg={"auth": {"tokens": [{"token": "k" * 40, "user": "emergency", "roles": ["viewer", "approver", "admin"]}]}})
     app.config["auth"].pop("access_keys", None)                       # the shipped default (local only), not the test fixture's convenience
     app.login = ErpNextLogin("http://erp.local", session_factory=erp.session)
-    from erp_agents.auth.sessions import SessionStore
+    from erp_agents.core.auth.sessions import SessionStore
     app.clock_s = FakeClock2()
     app.sessions = SessionStore(app.login, clock=app.clock_s, recheck_seconds=900, ttl_seconds=12 * 3600)
     app.throttle = LoginThrottle(limit=3, window=300, clock=app.clock_s)
@@ -442,7 +442,8 @@ def test_an_overlong_or_empty_login_is_a_clean_422(world):
 
 # ------------------------------------------------------------------ the service account should hold only what the app needs
 def test_the_service_account_check_keeps_the_smallest_ordinary_set_and_names_risky_surplus_roles():
-    from erp_agents.auth.access import NEEDS, analyse
+    from conftest import STOCK_NEEDS as NEEDS
+    from erp_agents.core.auth.access import analyse
     perms = {}
     for dt, flag in NEEDS:
         perms.setdefault(dt, [])
@@ -451,19 +452,20 @@ def test_the_service_account_check_keeps_the_smallest_ordinary_set_and_names_ris
     for dt, flag in NEEDS:
         grant(dt, flag, "Purchase User")                              # one ordinary role covers everything...
     grant("Company", "read", "System Manager", "HR Manager")          # ...risky roles could cover some of it too
-    r = analyse("agent@x.com", ["Purchase User", "System Manager", "HR Manager", "Sales User"], perms)
+    r = analyse("agent@x.com", ["Purchase User", "System Manager", "HR Manager", "Sales User"], perms, NEEDS)
     assert r.keep == ["Purchase User"] and not r.missing
     assert r.surplus == ["HR Manager", "Sales User", "System Manager"] and r.risky_held == ["HR Manager", "System Manager"]
 
 
 def test_the_service_account_check_reports_access_it_lacks_and_uses_a_risky_role_only_as_a_last_resort():
-    from erp_agents.auth.access import NEEDS, analyse
+    from conftest import STOCK_NEEDS as NEEDS
+    from erp_agents.core.auth.access import analyse
     perms = {dt: [] for dt, _ in NEEDS}
     for dt, flag in NEEDS:
         if (dt, flag) != ("Tax Rule", "read"):
             perms[dt].append({"role": "Stock User", "permlevel": 0, flag: 1})
     perms["Currency Exchange"] = [{"role": "Accounts Manager", "permlevel": 0, "read": 1}]
-    r = analyse("agent@x.com", ["Stock User", "Accounts Manager"], perms)
+    r = analyse("agent@x.com", ["Stock User", "Accounts Manager"], perms, NEEDS)
     assert r.missing == [("Tax Rule", "read")]
     assert "Stock User" in r.keep
 

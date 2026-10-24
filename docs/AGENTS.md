@@ -13,8 +13,8 @@ The Stock Assistant has always worked from rules: the same data gives the same a
    └────────┼────────────────────────────────────────┘                  │
             │  MCP (in-process)                                         │
             ▼                                                           ▼
-   ┌───────────────────────  MCP server (mcp_server.py)  ───────────────────────┐
-   │   7 tools (toolkit.py): look up stock, usage, vendors, orders, requests;   │
+   ┌───────────────────────  MCP server (core/mcp_server.py)  ───────────────────────┐
+   │   7 tools (the stock pack, tools.py): look up stock, usage, vendors, orders, requests;│
    │   one tool prepares an order REQUEST for a person to answer                │
    └──────────────────────────────────┬─────────────────────────────────────────┘
                                       ▼
@@ -32,7 +32,7 @@ The Stock Assistant has always worked from rules: the same data gives the same a
 
 ## The tools
 
-All seven are in [`src/erp_agents/toolkit.py`](../src/erp_agents/toolkit.py), plain Python with no web, HTTP or SQL imports, so they move into a Frappe app unchanged. The MCP server publishes exactly these, with the same names, descriptions and argument descriptions.
+All seven are defined in the stock pack ([`src/erp_agents/packs/stock_procurement/tools.py`](../src/erp_agents/packs/stock_procurement/tools.py), declared in its [`manifest.yaml`](../src/erp_agents/packs/stock_procurement/manifest.yaml)) and registered with the core's tool registry ([`core/toolkit.py`](../src/erp_agents/core/toolkit.py)), which checks the caller's role on every call. They are plain Python with no web, HTTP or SQL imports, so they move into a Frappe app unchanged. The MCP server publishes exactly these, with the same names, descriptions and argument descriptions.
 
 | Tool | Who may use it | Returns |
 |---|---|---|
@@ -209,4 +209,4 @@ Median 264 s, fastest 152 s, slowest 569 s in that first run.
 
 ## For the Frappe Marketplace version
 
-The agents are written to move: `toolkit.py` and the agent modules have no web, scheduler or SQL imports; the language-model client is the only network code; settings are a validated section (a Frappe Single DocType maps onto it); the privacy statement is generated from code and tested ([PRIVACY.md](PRIVACY.md)). What changes in the Frappe app: the MCP endpoint becomes a whitelisted method with Frappe's OAuth provider, tasks and tool calls become DocTypes, the scheduler job becomes a Scheduled Job Type.
+The agents are written to move: `core/toolkit.py`, the stock pack's `tools.py` and the agent modules have no web, scheduler or SQL imports; the language-model client is the only network code; settings are a validated section (a Frappe Single DocType maps onto it); the privacy statement is generated from code and tested ([PRIVACY.md](PRIVACY.md)). What changes in the Frappe app: the MCP endpoint becomes a whitelisted method with Frappe's OAuth provider, tasks and tool calls become DocTypes, the scheduler job becomes a Scheduled Job Type.

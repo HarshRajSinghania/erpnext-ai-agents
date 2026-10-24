@@ -10,7 +10,7 @@ It runs on a laptop or a small VPS and needs only open-source software (Python, 
 
 > **Status: beta. Licence: GPL-3.0-or-later.**
 >
-> - 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
+> - 1,201 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
 > - Checked live against an **ERPNext v16** test instance: reads, vendor comparison with duties and taxes, sign-in through ERPNext, permissions, and creation of a
 >   draft Purchase Order and Material Request ([docs/E2E_TEST_RESULTS.md](docs/E2E_TEST_RESULTS.md) lists every case and what passed, failed or was not run).
 >   Other ERPNext versions have not been tried.
@@ -49,7 +49,7 @@ lumpy demand.
 
 ## 2. What the agent decides, and why you can trust the explanation
 
-All numbers come from plain code (`inventory/analysis.py`), not from an LLM, and the message is
+All numbers come from plain code (`packs/stock_procurement/inventory/analysis.py`), not from an LLM, and the message is
 filled in from those stored numbers - so the explanation can never disagree with the data.
 
 **Threshold rules (admin-configurable)** - the item alerts when any enabled rule is tripped:
@@ -390,12 +390,38 @@ erp-agents restore FILE --force   # stop the application first; the database it 
 ## 8. How it fits the bigger ERP-agents design
 
 ```
-erp/        adapters (ERPNext, mock)     <- agents only know the ERPClient interface
-core/       settings + audit, storage, work-order queue
-inventory/  analysis (maths), messages (explanations), agent (lifecycle)
-approvals/  channel-neutral service + router + channels/ (telegram, whatsapp, console, inbox)
-api/        admin / inbox / webhook HTTP API         scheduler.py  cli.py  bootstrap.py
+src/erp_agents/core/                          what every area shares
+  erp/                    adapters (ERPNext, mock)     <- everything else only knows the ERPClient interface
+  settings_store.py, storage.py, workorders.py            settings + audit, the database, the work-order queue
+  approvals/              channel-neutral service + router + channels/ (telegram, whatsapp, simple console)
+  auth/, policy.py        who may do what, from ERPNext's own roles
+  toolkit.py, mcp_server.py, agents/                      the tool registry, the MCP server, the agent runtime and its checks
+  api/, scheduler.py, cli.py, bootstrap.py                HTTP API, the clock, the command line, start-up
+  packs.py                reads each pack's manifest, switches packs on and off, loads them
+src/erp_agents/packs/
+  stock_procurement/      the stock and procurement pack (the only one with code today)
+    inventory/            analysis (maths), messages (explanations), agent (lifecycle)
+    procurement/          vendor scoring, taxes, proposals, agent (lifecycle)
+    assistant/, agents/   the chat and "Ask why", the two AI agents' prompts and tasks
+    tools.py, manifest.yaml, pack.py, settings.py, schema.py, api.py, cli.py, jobs.py, web/, tests/
+  sales/, finance/        empty skeletons: a manifest and a README, no code
 ```
+
+### Packs: stock and procurement is one pack of a shared core
+
+The program is a **core** (ERPNext access, sign-in and roles, approvals and their channels, the tool registry, the MCP server, the agent runtime with its answer
+checks, settings, audit) and **packs** that add one area each. Today there is one working pack, `stock_procurement` (everything this README describes); `sales`
+and `finance` are empty skeletons that show where the next ones would go. A pack is a folder with a `manifest.yaml` that declares its tools, the ERPNext roles
+it needs, which actions need a person's approval, the settings it adds and what an agent may send to a language model. The core reads the manifests, loads the
+packs that are switched on, and refuses to start if what a pack registers differs from what its manifest says.
+
+What a pack cannot switch off: the role check on every tool call, the rule that nothing is ordered until a person presses Create order, and the check that
+every number in an agent's answer came from a tool. Those live in the core and apply to every pack.
+
+Switching a pack is an administrator setting (`packs.enabled` in the settings file, or `PUT /api/v1/settings/module/packs`); `GET /api/v1/packs` shows each pack
+with its state. A pack that is off answers "switched off" at once (its tools, routes, commands and scheduled work); switching one on needs a restart. Its data stays
+in the database while it is off. The default is the stock pack on, the others off, so nothing changes for you. How to write a pack:
+[docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 Approving "Start reorder" writes a **`REORDER_NEEDED` work order** (item, suggested quantity and its
 basis, usage, lead time, stock-out date, the full analysis snapshot). The next module - the
@@ -412,7 +438,7 @@ suppliers and history from the ERP, ranks them and asks the owner to approve ONE
   needs *Purchase Order* read access); lead time and on-time rate from *Purchase Receipts* vs the order date and
   required-by date; credit days from the supplier's *Payment Terms Template*. Anything the agent user cannot read
   is reported as unknown, never invented.
-- **Scoring** (`procurement/scoring.py`, plain maths): cost, delivery (capped when it arrives after you run out),
+- **Scoring** (`packs/stock_procurement/procurement/scoring.py`, plain maths): cost, delivery (capped when it arrives after you run out),
   reliability and payment terms combined with the weights in *Vendor Selector* (`/api/v1/settings/procurement`).
   The approval message says why this vendor won and, for every other vendor, the factors that cost it the most points.
 - **On approval** (`po_mode: draft`): a **draft** Purchase Order is created in the ERP (needs *create* permission on
@@ -490,7 +516,7 @@ and supplier data stay on this server.
   the vendor scores) and the question. It must reply in a fixed JSON format, citing the fact ids it used.
 - Repeatable: temperature 0, fixed seed, `top_k` 1, and every answer is stored, so the same question about the same
   request returns the same answer.
-- Checked in code (`assistant/verify.py`) before anything is shown: the cited facts must exist; every number in the
+- Checked in code (`core/assistant/verify.py`) before anything is shown: the cited facts must exist; every number in the
   answer must appear in the facts or the question; no guessing words ("probably", "assume", ...); length limited.
   If any check fails, or the model says it cannot answer, the person sees *"I do not have enough information in the
   recorded data to answer that question."* The rejected draft is kept in the database for audit only.

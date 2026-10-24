@@ -1,0 +1,9 @@
+# Finance: reserved for a future finance agent. Nothing is implemented: no tools, no approvals, no settings, no code.
+name: finance
+version: 0.0.1
+title: Finance
+summary: Reserved for a future finance agent (receivables, payables, cash). An empty skeleton.
+status: skeleton
+requires_core: ">=0.1"
+enabled_by_default: false
+depends_on: []

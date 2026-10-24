@@ -17,12 +17,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import OWNER, FakeHTTP
-from erp_agents.api.app import create_app
-from erp_agents.api.hardening import access_key_mode, access_key_warning
+from erp_agents.core.api.app import create_app
+from erp_agents.core.api.hardening import access_key_mode, access_key_warning
 from erp_agents.core.common import untrusted
 from erp_agents.core.netguard import blocked_target
 from erp_agents.core.policy import PROVIDER_URLS
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.erp.mock import MockERP
 
 STRONG = "s" * 40
 SECRET = "sk-test-SECRET-should-never-travel-1234567890"
@@ -92,7 +92,7 @@ def pair():
 
 
 # ====================================================================== F-1: where 'Check connection' may send the key
-llm = pytest.importorskip("erp_agents.agents.llm")
+llm = pytest.importorskip("erp_agents.core.agents.llm")
 
 
 @pytest.mark.parametrize("provider", ["anthropic", "openai", "gemini"])
@@ -104,7 +104,7 @@ def test_check_ignores_the_callers_address_for_a_hosted_provider(make_app, monke
     def fake_client(cfg, keys):
         used.append(cfg.effective_base_url())
         return SimpleNamespace(status=lambda: {"reachable": True, "model_installed": True})
-    monkeypatch.setattr("erp_agents.agents.service.make_client", fake_client)
+    monkeypatch.setattr("erp_agents.core.agents.service.make_client", fake_client)
     app.agents.check(provider, "https://attacker.example/collect", "m")
     assert used == [PROVIDER_URLS[provider]]                                  # the caller's address was ignored; the provider's own was checked
 
@@ -113,7 +113,7 @@ def test_check_over_the_api_ignores_the_address_too(make_app, monkeypatch):
     app = make_app(erp=MockERP(), cfg={"auth": {"tokens": [{"token": STRONG, "user": "owner", "roles": ["admin", "approver"]}]}})
     app.agents.resolve = lambda *a, **k: PUBLIC_IP
     used = []
-    monkeypatch.setattr("erp_agents.agents.service.make_client", lambda cfg, keys: used.append(cfg.effective_base_url()) or SimpleNamespace(status=lambda: {"reachable": True}))
+    monkeypatch.setattr("erp_agents.core.agents.service.make_client", lambda cfg, keys: used.append(cfg.effective_base_url()) or SimpleNamespace(status=lambda: {"reachable": True}))
     r = TestClient(create_app(app)).post("/api/v1/agents/check", json={"provider": "openai", "base_url": "https://attacker.example/v1"}, headers=hdr(STRONG))
     assert r.status_code == 200 and used == [PROVIDER_URLS["openai"]]
 
@@ -124,14 +124,14 @@ def test_check_never_contacts_this_machine_or_the_private_network_for_a_hosted_p
     """The provider's host name could be made to resolve to an internal address (DNS rebinding, a hosts file): every resolved address is checked."""
     app = make_app(erp=MockERP(), cfg={"auth": {"tokens": [{"token": STRONG, "user": "owner", "roles": ["admin", "approver"]}]}})
     app.agents.resolve = resolver(ip)
-    monkeypatch.setattr("erp_agents.agents.service.make_client", lambda *a, **k: pytest.fail("nothing may be contacted"))
+    monkeypatch.setattr("erp_agents.core.agents.service.make_client", lambda *a, **k: pytest.fail("nothing may be contacted"))
     r = TestClient(create_app(app)).post("/api/v1/agents/check", json={"provider": "anthropic"}, headers=hdr(STRONG))
     assert r.status_code == 422 and kind in r.json()["detail"] and "cannot be checked" in r.json()["detail"]
 
 
 def test_check_for_ollama_may_use_this_machine_or_the_lan_but_never_a_link_local_address(make_app, monkeypatch):
     app = make_app(erp=MockERP())
-    monkeypatch.setattr("erp_agents.agents.service.make_client", lambda cfg, keys: SimpleNamespace(status=lambda: {"reachable": True}))
+    monkeypatch.setattr("erp_agents.core.agents.service.make_client", lambda cfg, keys: SimpleNamespace(status=lambda: {"reachable": True}))
     assert app.agents.check("ollama", "", "llama3.1")["reachable"] is True
     assert app.agents.check("ollama", "http://172.16.5.20:11434", "llama3.1")["reachable"] is True
     with pytest.raises(ValueError, match="link-local"):
@@ -218,15 +218,15 @@ def test_a_request_for_another_host_is_refused_before_anything_is_sent(pair, mon
 
 
 def test_the_erpnext_client_does_not_follow_a_redirect_with_its_api_key(pair):
-    from erp_agents.erp.erpnext import ERPNextClient
+    from erp_agents.core.erp.erpnext import ERPNextClient
     erp_server, elsewhere = pair
     assert ERPNextClient(erp_server.url, "key", SECRET).healthcheck() is False
     assert erp_server.saw(SECRET) and elsewhere.seen == []
 
 
 def test_whatsapp_and_telegram_do_not_follow_redirects_with_their_tokens(pair):
-    from erp_agents.approvals.channels.telegram import TelegramChannel
-    from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
+    from erp_agents.core.approvals.channels.telegram import TelegramChannel
+    from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
     meta, elsewhere = pair
     assert not WhatsAppChannel(SECRET, "PNID", api_base=meta.url).send_text("919800000000", "hi").ok
     TelegramChannel("123:" + SECRET, api_base=meta.url).send_text("555", "hi")
@@ -277,7 +277,7 @@ def test_an_unknown_setting_falls_back_to_local(value, mode):
 
 
 def test_serve_prints_the_warning(tmp_path, monkeypatch, capsys):
-    import erp_agents.cli as cli
+    import erp_agents.core.cli as cli
     cfg = tmp_path / "settings.yaml"
     cfg.write_text(f"database: {{path: '{(tmp_path / 'x.db').as_posix()}'}}\nerp: {{type: mock}}\nauth:\n  access_keys: anywhere\n  tokens:\n"
                    f"    - {{token: '{STRONG}', user: owner, roles: [admin]}}\n", encoding="utf-8")
@@ -322,10 +322,10 @@ def test_the_tool_call_record_holds_no_control_characters(make_app):
 
 
 def test_log_lines_from_strangers_are_cleaned(make_app, caplog):
-    from erp_agents.approvals.channels.simple import InboxChannel
-    from erp_agents.approvals.inbound import process_inbound
-    from erp_agents.approvals.models import InboundEvent
-    tg = __import__("erp_agents.approvals.channels.telegram", fromlist=["TelegramChannel"]).TelegramChannel("123:T", http=FakeHTTP())
+    from erp_agents.core.approvals.channels.simple import InboxChannel
+    from erp_agents.core.approvals.inbound import process_inbound
+    from erp_agents.core.approvals.models import InboundEvent
+    tg = __import__("erp_agents.core.approvals.channels.telegram", fromlist=["TelegramChannel"]).TelegramChannel("123:T", http=FakeHTTP())
     app = make_app(erp=MockERP(), channels={"telegram": tg, "inbox": InboxChannel()})
     with caplog.at_level(logging.WARNING):
         process_inbound(InboundEvent(channel="telegram", sender="999\nINFO approved by owner", approval_id="x", action="approve"), app.router, app.approvals)
@@ -349,8 +349,8 @@ PLAIN = ["What is running low?", "Which vendor is cheapest for BOLT-M8?", "How m
 @pytest.mark.parametrize("question", PLAIN)
 def test_a_plain_question_never_offers_prepare_order_request(question):
     pytest.importorskip("mcp")
-    from erp_agents.agents.purchase_agent import PREPARE, ask_job
-    from erp_agents.agents.runtime import Evidence
+    from erp_agents.packs.stock_procurement.agents.purchase_agent import PREPARE, ask_job
+    from erp_agents.core.agents.runtime import Evidence
     job = ask_job(question, "owner", "2026-10-25", can_prepare=True)
     assert PREPARE not in job.tools
     assert job.gate(PREPARE, {"item_code": "BOLT-M8", "reason": "x"}, Evidence()) is not None          # and the gate refuses it even if a model calls it anyway
@@ -358,15 +358,15 @@ def test_a_plain_question_never_offers_prepare_order_request(question):
 
 def test_an_explicit_order_instruction_from_an_approver_does_offer_it_and_a_viewer_never_gets_it():
     pytest.importorskip("mcp")
-    from erp_agents.agents.purchase_agent import PREPARE, ask_job
+    from erp_agents.packs.stock_procurement.agents.purchase_agent import PREPARE, ask_job
     assert PREPARE in ask_job("create a purchase order for BOLT-M8 for 500", "owner", "2026-10-25", can_prepare=True).tools
     assert PREPARE not in ask_job("create a purchase order for BOLT-M8 for 500", "viewer", "2026-10-25", can_prepare=False).tools
 
 
 def webhook_world(make_app):
-    from erp_agents.approvals.channels.simple import InboxChannel
-    from erp_agents.approvals.channels.telegram import TelegramChannel
-    from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
+    from erp_agents.core.approvals.channels.simple import InboxChannel
+    from erp_agents.core.approvals.channels.telegram import TelegramChannel
+    from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
     channels = {"whatsapp": WhatsAppChannel("T", "PNID", app_secret="the-real-app-secret", verify_token="v", http=FakeHTTP()),
                 "telegram": TelegramChannel("123:T", webhook_secret="the-real-webhook-secret", mode="webhook", http=FakeHTTP()), "inbox": InboxChannel()}
     cfg = {"approvals": {"strategy": "all", "recipients": [{"id": "owner", "name": "Owner", "roles": ["admin", "approver"],
@@ -379,7 +379,7 @@ def webhook_world(make_app):
 
 @pytest.mark.parametrize("headers", [{}, {"X-Hub-Signature-256": "sha256=" + "0" * 64}, {"X-Hub-Signature-256": "garbage"}])
 def test_a_forged_whatsapp_webhook_is_refused_and_changes_nothing(make_app, headers):
-    from erp_agents.approvals.channels.base import encode_action
+    from erp_agents.core.approvals.channels.base import encode_action
     app, rec, c = webhook_world(make_app)
     body = {"entry": [{"changes": [{"value": {"messages": [{"from": "919800000000", "type": "interactive",
                                                            "interactive": {"type": "button_reply", "button_reply": {"id": encode_action(rec.id, "approve")}}}]}}]}]}
@@ -389,7 +389,7 @@ def test_a_forged_whatsapp_webhook_is_refused_and_changes_nothing(make_app, head
 
 @pytest.mark.parametrize("secret", [None, "", "wrong", "the-real-webhook-secre"])
 def test_a_forged_telegram_webhook_is_refused_and_changes_nothing(make_app, secret):
-    from erp_agents.approvals.channels.base import encode_action
+    from erp_agents.core.approvals.channels.base import encode_action
     app, rec, c = webhook_world(make_app)
     body = {"update_id": 1, "callback_query": {"id": "q", "from": {"id": 555}, "message": {"message_id": 1, "chat": {"id": 555}}, "data": encode_action(rec.id, "approve")}}
     r = c.post("/webhooks/telegram", json=body, headers={"X-Telegram-Bot-Api-Secret-Token": secret} if secret is not None else {})

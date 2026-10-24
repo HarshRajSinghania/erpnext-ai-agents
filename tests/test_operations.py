@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 import erp_agents.core.storage as storage
-from erp_agents.cli import main
+from erp_agents.core.cli import main
 from erp_agents.core import doctor, ops
 from erp_agents.core.storage import Database, SchemaError
 
@@ -446,3 +446,119 @@ def test_doctors_exit_code_follows_what_is_wrong(tmp_path, capsys):
     cfg.write_text(f"database: {{path: '{(tmp_path / 'a.db').as_posix()}'}}\nerp: {{type: mock}}\n", encoding="utf-8")
     assert main(["--config", str(cfg), "doctor"]) == 0
     assert main(["--config", str(cfg), "doctor", "--strict"]) in (0, 1)
+
+
+# ====================================================================== a pack's tables: versioned apart from the core's
+PACK_DDL = "CREATE TABLE IF NOT EXISTS demo_things (id INTEGER PRIMARY KEY, name TEXT);"
+
+
+def test_a_packs_tables_are_made_once_and_versioned_apart_from_the_cores(tmp_path):
+    path = str(tmp_path / "app.db")
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 1)
+    db.register_schema("demo", PACK_DDL, 1)                                                              # registering again is a no-op
+    db.execute("INSERT INTO demo_things(name) VALUES ('kept')")
+    assert [dict(r) for r in db.query("SELECT pack, version FROM pack_schema")] == [{"pack": "demo", "version": 1}]
+    assert version_in(path) == storage.SCHEMA_VERSION                                                    # the core's version is its own
+    db.close()
+    again = Database(path)
+    again.register_schema("demo", PACK_DDL, 1)
+    assert again.query_one("SELECT name FROM demo_things")["name"] == "kept"
+    again.close()
+
+
+def test_a_database_made_before_packs_existed_gets_a_version_row_and_keeps_its_data(tmp_path):
+    path = str(tmp_path / "legacy.db")
+    c = sqlite3.connect(path)
+    c.executescript(PACK_DDL + "INSERT INTO demo_things(name) VALUES ('old row');")                       # the tables are already there, and there is no pack_schema table at all
+    c.commit()
+    c.close()
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 1)
+    assert db.query_one("SELECT version FROM pack_schema WHERE pack='demo'")["version"] == 1 and db.query_one("SELECT name FROM demo_things")["name"] == "old row"
+    db.close()
+
+
+def test_a_pack_schema_from_a_newer_version_is_refused_untouched(tmp_path):
+    path = str(tmp_path / "app.db")
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 3)
+    db.close()
+    before = Path(path).read_bytes()
+    db = Database(path)
+    with pytest.raises(SchemaError, match="demo tables.*newer version.*Nothing was changed"):
+        db.register_schema("demo", PACK_DDL, 2)
+    db.close()
+    assert [p.name for p in tmp_path.iterdir() if "before-schema" in p.name] == []
+
+
+def test_a_pack_schema_is_upgraded_one_step_at_a_time_after_a_copy(tmp_path):
+    path = str(tmp_path / "app.db")
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 1)
+    db.execute("INSERT INTO demo_things(name) VALUES ('row')")
+    db.close()
+    steps = []
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 3, {2: lambda conn: (steps.append(2), conn.execute("ALTER TABLE demo_things ADD COLUMN colour TEXT")), 3: lambda conn: steps.append(3)})
+    assert steps == [2, 3] and db.query_one("SELECT version FROM pack_schema WHERE pack='demo'")["version"] == 3 and "colour" in db.query_one("SELECT * FROM demo_things").keys()
+    db.close()
+    (copy,) = [p for p in tmp_path.iterdir() if ".before-schema-demo-1-" in p.name]
+    assert rows_of(str(copy), "demo_things") == 1
+
+
+def test_a_failed_pack_migration_changes_nothing(tmp_path):
+    path = str(tmp_path / "app.db")
+    db = Database(path)
+    db.register_schema("demo", PACK_DDL, 1)
+    db.close()
+    db = Database(path)
+
+    def broken(conn):
+        conn.execute("ALTER TABLE demo_things ADD COLUMN half_done TEXT")
+        raise RuntimeError("boom")
+    with pytest.raises(SchemaError, match="demo tables to schema version 2 failed.*Nothing was changed"):
+        db.register_schema("demo", PACK_DDL, 2, {2: broken})
+    assert db.query_one("SELECT version FROM pack_schema WHERE pack='demo'")["version"] == 1 and "half_done" not in [r["name"] for r in db.query("PRAGMA table_info(demo_things)")]
+    with pytest.raises(SchemaError, match="no migration for version"):
+        db.register_schema("demo", PACK_DDL, 2, {})
+    db.close()
+
+
+def rows_of(path, table):
+    c = sqlite3.connect(path)
+    try:
+        return c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    finally:
+        c.close()
+
+
+def test_the_stock_packs_tables_are_made_by_the_pack_not_the_core(tmp_path):
+    from erp_agents.packs.stock_procurement.inventory.alerts import AlertRepo
+    from erp_agents.packs.stock_procurement import schema as stock
+    db = Database(str(tmp_path / "stock.db"))
+    tables = lambda: {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")}      # noqa: E731
+    assert not ({"alerts", "proposals", "stock_notices", "chat_log", "assistant_answers", "agent_runs"} & tables())      # a bare core database has none of them
+    AlertRepo(db)                                                                                         # the pack's repository registers its schema when it is built
+    assert {"alerts", "proposals", "stock_notices", "chat_log", "assistant_answers", "agent_runs"} <= tables()
+    assert db.query_one("SELECT version FROM pack_schema WHERE pack=?", (stock.NAME,))["version"] == stock.VERSION
+    db.close()
+
+
+def test_a_database_with_the_old_combined_schema_opens_and_keeps_every_row(tmp_path):
+    """Before packs, one SCHEMA made every table. A file made then has the stock tables, data in them, and no pack_schema table."""
+    from erp_agents.packs.stock_procurement import schema as stock
+    path = str(tmp_path / "old.db")
+    c = sqlite3.connect(path)
+    c.executescript(storage.SCHEMA.replace("CREATE TABLE IF NOT EXISTS pack_schema (", "CREATE TABLE IF NOT EXISTS ignored_pack_schema ("))
+    c.executescript(stock.SCHEMA)
+    c.execute("DROP TABLE ignored_pack_schema")
+    c.execute("INSERT INTO schema_info(version) VALUES (1)")
+    c.execute("INSERT INTO alerts(id, item_code, kind, severity, status, created_at, updated_at, analysis_json, reasoning_text) VALUES ('a1','BOLT-M8','BREACH',3,'awaiting','2026-10-01T00:00:00+00:00','2026-10-01T00:00:00+00:00','{}','low')")
+    c.commit()
+    c.close()
+    from erp_agents.packs.stock_procurement.inventory.alerts import AlertRepo
+    db = Database(path)
+    repo = AlertRepo(db)
+    assert repo.latest_for_item("BOLT-M8").id == "a1"
+    db.close()

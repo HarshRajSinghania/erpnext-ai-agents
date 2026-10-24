@@ -1,12 +1,10 @@
 """The channel-independent approval workflow: one decision, safe retries, multi-channel delivery."""
 import pytest
 
-from erp_agents.approvals.channels.base import Channel
-from erp_agents.approvals.models import (
-    ApprovalOption, ApprovalRequest, DeliveryResult, Recipient, RecipientChannel, Section,
-)
-from erp_agents.approvals.router import ApprovalRouter
-from erp_agents.approvals.service import ApprovalService, KindHandler
+from erp_agents.core.approvals.channels.base import Channel
+from erp_agents.core.approvals.models import ApprovalOption, ApprovalRequest, DeliveryResult, Recipient, RecipientChannel, Section
+from erp_agents.core.approvals.router import ApprovalRouter
+from erp_agents.core.approvals.service import ApprovalService, KindHandler
 from erp_agents.core.storage import Database
 
 from conftest import APPROVER, OWNER, VIEWER

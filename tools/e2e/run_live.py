@@ -24,15 +24,15 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from erp_agents.api.app import create_app
-from erp_agents.approvals.channels.base import encode_action
-from erp_agents.approvals.channels.simple import InboxChannel
-from erp_agents.approvals.channels.telegram import TelegramChannel
-from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
-from erp_agents.bootstrap import build_app
-from erp_agents.config import load_config
+from erp_agents.core.api.app import create_app
+from erp_agents.core.approvals.channels.base import encode_action
+from erp_agents.core.approvals.channels.simple import InboxChannel
+from erp_agents.core.approvals.channels.telegram import TelegramChannel
+from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
+from erp_agents.core.bootstrap import build_app
+from erp_agents.core.config import load_config
 from erp_agents.core.common import Actor
-from erp_agents.erp.erpnext import ERPNextClient, ERPNextError
+from erp_agents.core.erp.erpnext import ERPNextClient, ERPNextError
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "config" / "settings.erpnext.yaml"
@@ -284,7 +284,7 @@ def main() -> int:
 
     @case("AUTH-01", "P0", "What people may do follows ERPNext's own permission table (read live)")
     def _():
-        from erp_agents.auth.erpnext import ErpNextLogin, derive_caps
+        from erp_agents.core.auth.erpnext import ErpNextLogin, derive_caps
         prov = ErpNextLogin(base_cfg["erp"]["url"])
         item, order = prov._doctype_perms(erp.session, "Item"), prov._doctype_perms(erp.session, "Purchase Order")
         assert item and order, "ERPNext returned no permission rows"
@@ -301,8 +301,9 @@ def main() -> int:
 
     @case("AUTH-02", "P1", "The service account holds only what the app needs")
     def _():
-        from erp_agents.auth.access import check_service_account
-        r = check_service_account(erp.session, base_cfg["erp"]["url"])
+        from erp_agents.core.auth.access import check_service_account
+        from erp_agents.core.packs import PackRegistry
+        r = check_service_account(erp.session, base_cfg["erp"]["url"], list(PackRegistry.discover().manifests["stock_procurement"].erp_permissions))
         assert not r.missing, f"it lacks access the app needs: {r.missing}"
         assert not r.risky_held, (f"the service account '{r.user}' holds {len(r.surplus)} roles it does not need, including high-risk ones ({', '.join(r.risky_held)}); "
                                   f"a stolen key could change anything in ERPNext. Smallest set that covers the app: {', '.join(r.keep)}. Run: erp-agents erp-check-access")
@@ -373,13 +374,13 @@ def main() -> int:
         configured = base_cfg["erp"].get("company")
         assert len(companies) <= 1 or configured in companies, f"ERPNext has {companies} but {CONFIG} sets erp.company to {configured!r}: a draft order would land in the account's default company"
         refused = ERPNextClient(base_cfg["erp"]["url"], base_cfg["erp"]["api_key"], base_cfg["erp"]["api_secret"]).create_purchase_order(
-            __import__("erp_agents.erp.base", fromlist=["PurchaseOrderDraft"]).PurchaseOrderDraft("none", "none", 1, 1.0, "Nos", date.today())) if len(companies) > 1 else None
+            __import__("erp_agents.core.erp.base", fromlist=["PurchaseOrderDraft"]).PurchaseOrderDraft("none", "none", 1, 1.0, "Nos", date.today())) if len(companies) > 1 else None
         assert refused is None or (not refused.ok and "several companies" in refused.error), refused
         return f"ERPNext has {len(companies)} companies ({', '.join(companies)}); the configuration sets erp.company = {configured!r}; a client without a company refuses to create an order instead of guessing"
 
     @case("CFG-07", "P1", "Scheduler starts once")
     def _():
-        from erp_agents.scheduler import AgentScheduler
+        from erp_agents.core.scheduler import AgentScheduler
         s = AgentScheduler(app)
         s.start()
         s.start() if False else None
@@ -967,7 +968,7 @@ def main() -> int:
     @case("PO-07", "P0", "Lost response after ERPNext accepted the POST: retry must not create a second PO")
     def _():
         import requests as rq
-        from erp_agents.erp.base import PurchaseOrderDraft
+        from erp_agents.core.erp.base import PurchaseOrderDraft
 
         class LoseOnePostAnswer:
             """The real ERPNext session, except that the answer to the first order creation is lost after ERPNext has stored the order."""
@@ -1085,7 +1086,7 @@ def main() -> int:
 
     @case("PR-01", "P0", "A purchase requisition (Material Request) is created as a draft with the recommendation, and is safe to retry")
     def _():
-        from erp_agents.erp.base import RequisitionDraft
+        from erp_agents.core.erp.base import RequisitionDraft
         ref = "e2e-pr01-" + hashlib.sha256(os.urandom(6)).hexdigest()[:8]
         made = []
         try:
@@ -1581,7 +1582,7 @@ def main() -> int:
 
     @case("CHAT-06", "P0", "A requisition created through the app can be asked about by number, with who created and approved it; the chat itself changes nothing")
     def _():
-        from erp_agents.erp.base import RequisitionDraft
+        from erp_agents.core.erp.base import RequisitionDraft
         ref = "e2e-chat06-" + hashlib.sha256(os.urandom(6)).hexdigest()[:8]
         res = erp.create_material_request(RequisitionDraft(ITEM, 500, "Nos", date.today() + timedelta(days=7), rate=23.44, note="Recommended vendor: test.", reference=ref, approved_by="owner via whatsapp"))
         assert res.ok, res.error

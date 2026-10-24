@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ..api.hardening import ACCESS_KEY_MODES, MIN_KEY_LENGTH, access_key_mode, weak_key
+from .api.hardening import ACCESS_KEY_MODES, MIN_KEY_LENGTH, access_key_mode, weak_key
 from .ops import AlreadyRunning, InstanceLock, verify_database
 from .storage import SCHEMA_VERSION
 

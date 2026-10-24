@@ -33,7 +33,7 @@ git grep -nIE '(EAA[A-Za-z0-9]{40,}|[0-9]{8,10}:[A-Za-z0-9_-]{35}|AKIA[0-9A-Z]{1
 # provider API keys, bearer tokens, passwords written as values
 git grep -nIE '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|(api[_-]?key|secret|password|token)\s*[:=]\s*["'']?[A-Za-z0-9+/_-]{16,})' -- . ':!tests' ':!docs'
 # personal addresses, private network addresses, machine paths
-git grep -nIE '(gmail\.com|outlook\.com|yahoo\.com|192\.168\.[0-9]+\.[0-9]+|C:\\Users\\)' -- . ':!LICENSE' ':!tests/test_assistant.py' ':!tests/test_hardening.py' ':!tests/test_agents.py'
+git grep -nIE '(gmail\.com|outlook\.com|yahoo\.com|192\.168\.[0-9]+\.[0-9]+|C:\\Users\\)' -- . ':!LICENSE' ':!src/erp_agents/packs/stock_procurement/tests/test_assistant.py' ':!tests/test_hardening.py' ':!src/erp_agents/packs/stock_procurement/tests/test_agents.py'
 # the settings files must refer to secrets as ${NAME}, never hold them
 python -m erp_agents doctor         # "no secret is written into the settings file" (the check reads the settings file you point it at)
 ```

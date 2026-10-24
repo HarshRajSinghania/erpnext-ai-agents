@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from erp_agents.erp.erpnext import ERPNextClient
+from erp_agents.core.erp.erpnext import ERPNextClient
 
 
 class Resp:

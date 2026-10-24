@@ -9,16 +9,16 @@ import pytest
 
 pytest.importorskip("mcp", reason="the optional 'agents' extra is not installed")
 
-import erp_agents.agents.llm as llm_module
+import erp_agents.core.agents.llm as llm_module
 from conftest import OWNER, VIEWER
-from erp_agents.agents.inventory_agent import rules_brief
-from erp_agents.agents.llm import (AnthropicToolClient, GeminiToolClient, LLMError, OllamaToolClient, OpenAIToolClient, Reply, describe, make_client)
-from erp_agents.agents.runtime import AgentRuntime
-from erp_agents.agents.usage import estimated_cost
-from erp_agents.config import LLM_KEY_ENV, llm_key_sources_from_env, llm_keys_from_env, load_config, with_secrets
+from erp_agents.packs.stock_procurement.agents.inventory_agent import rules_brief
+from erp_agents.core.agents.llm import AnthropicToolClient, GeminiToolClient, LLMError, OllamaToolClient, OpenAIToolClient, Reply, describe, make_client
+from erp_agents.core.agents.runtime import AgentRuntime
+from erp_agents.core.agents.usage import estimated_cost
+from erp_agents.core.config import LLM_KEY_ENV, llm_key_sources_from_env, llm_keys_from_env, load_config, with_secrets
 from erp_agents.core.policy import PROVIDER_MODELS, PROVIDER_URLS, AgentSettings
 from erp_agents.core.storage import Database
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.erp.mock import MockERP
 from test_agents import FakeToolLLM, overview, say, use, with_model
 
 SECRET = "sk-test-SECRET-1234567890"
@@ -415,7 +415,7 @@ def test_usage_adds_up_by_model_and_keeps_local_and_hosted_apart(make_app, clock
 
 def test_the_usage_page_and_the_status_never_show_the_key(make_app, clock):
     from fastapi.testclient import TestClient
-    from erp_agents.api.app import create_app
+    from erp_agents.core.api.app import create_app
     app = make_app(erp=MockERP(today=clock().date()), cfg={"llm_keys": SECRET_KEYS, "auth": {"tokens": [{"token": "v" * 40, "user": "viewer", "roles": ["viewer"]}, {"token": "o" * 40, "user": "owner", "roles": ["viewer", "approver", "admin"]}]}})
     c = TestClient(create_app(app))
     H = lambda t: {"Authorization": "Bearer " + t * 40}                                                 # noqa: E731

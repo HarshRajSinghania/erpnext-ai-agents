@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 from .storage import SCHEMA, SCHEMA_VERSION
 
-REQUIRED_TABLES = tuple(dict.fromkeys(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA)))
+REQUIRED_TABLES = tuple(t for t in dict.fromkeys(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA)) if t != "pack_schema")      # pack_schema is made when the file is opened
 
 
 class AlreadyRunning(RuntimeError):

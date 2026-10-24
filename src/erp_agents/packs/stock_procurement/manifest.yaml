@@ -1,0 +1,100 @@
+# Stock and procurement: watch stock, warn early, compare vendors, prepare a purchase request for a person to approve.
+# Read by the core WITHOUT importing the pack (core/packs.py). What is declared here is checked against what the pack registers when it starts.
+name: stock_procurement
+version: 0.1.0
+title: Stock and procurement
+summary: Watches stock and warns before it runs out, compares vendors (price, duties, delivery, record) and prepares a purchase request that a person approves.
+status: active
+requires_core: ">=0.1"
+enabled_by_default: true
+depends_on: []
+
+# The tools an AI client or an agent may use. The core checks the role on every call, however it arrives (REST, MCP, an agent).
+# No tool orders, approves, pays or changes a setting: the only one with an effect only prepares an approval request.
+tools:
+  - {name: stock_overview, role: viewer, effect: read}
+  - {name: stock_status, role: viewer, effect: read}
+  - {name: usage_history, role: viewer, effect: read}
+  - {name: vendor_options, role: viewer, effect: read}
+  - {name: open_orders, role: viewer, effect: read}
+  - {name: waiting_requests, role: viewer, effect: read}
+  - {name: prepare_order_request, role: approver, effect: prepare}
+
+# ERPNext roles the pack needs, for the service account and for the people who use it. Accounts Manager only because ERPNext lets nothing else read Tax Rules.
+erp_roles: [Purchase User, Stock User, Accounts User, Accounts Manager]
+
+# What the ERPNext service account must be able to do (checked by `erp-agents erp-check-access`, which names the roles that are surplus).
+erp_permissions:
+  - [Item, read]
+  - [Bin, read]
+  - [Stock Ledger Entry, read]
+  - [Warehouse, read]
+  - [Supplier, read]
+  - [Payment Terms Template, read]
+  - [Purchase Order, read]
+  - [Purchase Order, create]
+  - [Supplier Quotation, read]
+  - [Material Request, read]
+  - [Material Request, create]
+  - [Purchase Receipt, read]
+  - [Tax Rule, read]
+  - [Purchase Taxes and Charges Template, read]
+  - [Item Tax Template, read]
+  - [Currency Exchange, read]
+  - [Company, read]
+
+# What a person needs in ERPNext (holding any one is enough): to look at the screens, and to answer requests (approving a purchase order creates one for them).
+erp_look:
+  - [Item, read]
+  - [Purchase Order, read]
+erp_decide:
+  - [Purchase Order, create]
+
+# What each kind of approval request lets a person press, and what answering it may create in the ERP. Nothing is ordered until a person presses a button.
+approvals:
+  - kind: inventory.alert
+    actions: [ack, snooze, details]
+    role: approver
+    description: An information-only stock alert (low stock soon, low stock, needed urgently), sent before any request to reorder.
+  - kind: inventory.reorder
+    actions: [approve, snooze, dismiss, details]
+    role: approver
+    description: A suggestion to reorder. Start reorder only starts the vendor comparison; it creates nothing in the ERP.
+  - kind: inventory.monitor_down
+    actions: [ack, details]
+    role: approver
+    description: A warning that the stock check cannot read the ERP.
+  - kind: procurement.po
+    actions: [approve, snooze, dismiss, requisition, change_qty, change_vendor, details]
+    role: approver
+    description: A purchase request with the recommended vendor. Create order makes a draft purchase order.
+    creates: a draft Purchase Order (or a draft Material Request when a requisition is chosen), with the approver recorded
+  - kind: procurement.pr
+    actions: [approve, snooze, dismiss, change_qty, change_vendor, details]
+    role: approver
+    description: The same, for items that go to a purchase requisition first.
+    creates: a draft Material Request (purchase requisition), with the approver recorded
+  - kind: procurement.manual
+    actions: [ack, snooze]
+    role: approver
+    description: A request that needs a person's decision because no vendor or quantity could be chosen automatically.
+  - kind: procurement.order
+    actions: [change_qty, change_vendor, cancel_order, keep]
+    role: approver
+    description: Sent after Create order. Change quantity changes it in the same order; Cancel order deletes a draft or cancels a submitted order (after a yes); Change vendor replaces it.
+    creates: changes the quantity of, cancels or replaces an order this application created (never one made by hand)
+
+# The settings this pack adds (admin-editable, audited).
+settings:
+  - {section: policy, description: "Stock thresholds, lead times, how usage is estimated and what counts as stock, with overrides per item group and per item."}
+  - {section: procurement, description: "How vendors are ranked, taxes and quotations, what approving does, vendor note, requisition-first items."}
+  - {section: calendar, description: "Known demand events (festivals, promotions) used to adjust days of cover."}
+  - {section: system, description: "Fields added to the system settings: the schedule, alert limits, the stock monitor columns."}
+
+# What an AI agent of this pack may send to a language model (shown in the privacy statement; the tools return no customer or staff personal data).
+sends_to_model:
+  - Item codes, names, units and groups of the items an agent looks at.
+  - Stock quantities, quantities on order and in transit, daily use, weekly quantities delivered to customers (totals per week, with no customer named), and the stock rules (cover days, lead times).
+  - "For the item being discussed: the vendors' names, prices, taxes and duties, delivery times and on-time record."
+  - Purchase order and requisition numbers with their vendor, quantities, due dates and status.
+  - The text of a question a person typed to the assistant, and the item and quantity of an order request being reviewed.

@@ -1,5 +1,5 @@
 """The git-ignored .env file feeds ${VAR} expansion in settings.yaml; real environment variables win."""
-from erp_agents.config import load_config, load_dotenv
+from erp_agents.core.config import load_config, load_dotenv
 
 
 def test_dotenv_parsing_and_precedence(tmp_path, monkeypatch):

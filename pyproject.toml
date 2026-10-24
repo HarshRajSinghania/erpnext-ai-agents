@@ -34,14 +34,16 @@ dev = ["pytest>=8", "httpx>=0.27", "bandit>=1.8", "pip-audit>=2.7"]
 agents = ["mcp>=2.3,<3", "jsonschema>=4.20"]       # the AI agents and the MCP server (MIT-licensed SDK); everything else works without it
 
 [project.scripts]
-erp-agents = "erp_agents.cli:main"
+erp-agents = "erp_agents.core.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-erp_agents = ["settings.example.yaml", "web/*"]
+erp_agents = ["settings.example.yaml", "packs/stock_procurement/web/*", "packs/*/manifest.yaml", "packs/*/README.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+# core and cross-cutting tests live in tests/; each pack keeps its own next to its code. conftest.py (the shared fixtures) is at the repository root, and every test folder is on the
+# path so a test can borrow a helper from a test in another folder.
+testpaths = ["tests", "src/erp_agents/packs"]
+pythonpath = ["src", ".", "tests", "src/erp_agents/packs/stock_procurement/tests"]

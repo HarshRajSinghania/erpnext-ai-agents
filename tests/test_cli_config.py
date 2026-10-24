@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from erp_agents.bootstrap import build_app
-from erp_agents.cli import main
-from erp_agents.config import expand_env, load_config
+from erp_agents.core.bootstrap import build_app
+from erp_agents.core.cli import main
+from erp_agents.core.config import expand_env, load_config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -38,7 +38,7 @@ def test_unset_token_variable_is_skipped_not_crashing(tmp_path, monkeypatch):
     cfg = load_config(str(ROOT / "config" / "settings.example.yaml"))
     cfg["database"]["path"] = str(tmp_path / "x.db")
     cfg["auth"]["tokens"] = [{"token": "${NOPE_TOKEN}", "user": "ghost", "roles": ["admin"]}]
-    cfg = __import__("erp_agents.config", fromlist=["expand_env"]).expand_env(cfg)
+    cfg = __import__("erp_agents.core.config", fromlist=["expand_env"]).expand_env(cfg)
     assert build_app(config=cfg).tokens == {}
 
 
@@ -93,7 +93,7 @@ def test_demo_runs(capsys):
 
 
 def test_policy_set_with_options_before_the_values_parses_on_every_python_version():
-    from erp_agents.cli import build_parser, parse_cli
+    from erp_agents.core.cli import build_parser, parse_cli
     a = parse_cli(build_parser(), ["policy", "set", "--scope", "item", "--key", "BOLT-M8", "min_qty=5", "min_days_cover=null"])
     assert a.action == "set" and a.scope == "item" and a.key == "BOLT-M8" and a.values == ["min_qty=5", "min_days_cover=null"]
     b = parse_cli(build_parser(), ["policy", "set", "min_qty=5", "--scope", "global"])
@@ -102,7 +102,7 @@ def test_policy_set_with_options_before_the_values_parses_on_every_python_versio
 
 def test_unknown_arguments_are_still_refused(capsys):
     import pytest
-    from erp_agents.cli import build_parser, parse_cli
+    from erp_agents.core.cli import build_parser, parse_cli
     for argv in (["policy", "set", "--nonsense", "x"], ["analyze", "BOLT-M8", "extra"], ["policy", "show", "--scope", "item", "--bogus"]):
         with pytest.raises(SystemExit) as exc:
             parse_cli(build_parser(), argv)
@@ -113,7 +113,7 @@ def test_unknown_arguments_are_still_refused(capsys):
 def test_the_python_3_10_split_is_put_back_together(monkeypatch):
     """On Python 3.10 and 3.11 argparse hands `min_qty=5 min_days_cover=null` back as unrecognised when they follow the options (21 Oct review, blocker 5).
     Only Python 3.14 is installed here, so the 3.10 split is reproduced exactly: the field list comes back empty and the fields come back as leftovers."""
-    from erp_agents.cli import build_parser, parse_cli
+    from erp_agents.core.cli import build_parser, parse_cli
     parser = build_parser()
     real = parser.parse_known_args
 

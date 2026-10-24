@@ -20,7 +20,7 @@ def server(tmp_path, role=None):
         lines += ["mcp:", f"  stdio_role: {role}"]
     cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
     env = {**os.environ, "PYTHONPATH": SRC + os.pathsep + os.environ.get("PYTHONPATH", "")}
-    return StdioServerParameters(command=sys.executable, args=["-m", "erp_agents.cli", "--config", str(cfg), "mcp"], env=env)
+    return StdioServerParameters(command=sys.executable, args=["-m", "erp_agents.core.cli", "--config", str(cfg), "mcp"], env=env)
 
 
 def run(coro):

@@ -10,8 +10,8 @@ import sys
 from collections import defaultdict
 from datetime import date, timedelta
 
-from erp_agents.config import load_config
-from erp_agents.erp.erpnext import ERPNextClient
+from erp_agents.core.config import load_config
+from erp_agents.core.erp.erpnext import ERPNextClient
 
 from . import scenarios
 

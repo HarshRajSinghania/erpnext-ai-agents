@@ -10,13 +10,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import FakeHTTP
-from erp_agents.api import hardening
-from erp_agents.api.app import create_app
-from erp_agents.approvals.channels.simple import InboxChannel
-from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
-from erp_agents.auth.sessions import LoginThrottle, SessionStore
+from erp_agents.core.api import hardening
+from erp_agents.core.api.app import create_app
+from erp_agents.core.approvals.channels.simple import InboxChannel
+from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
+from erp_agents.core.auth.sessions import LoginThrottle, SessionStore
 
-WEB = Path(hardening.__file__).resolve().parent.parent / "web" / "index.html"
+WEB = Path(hardening.__file__).resolve().parents[2] / "packs" / "stock_procurement" / "web" / "index.html"
 STRONG = "k" * 40
 LOCAL = dict(base_url="http://127.0.0.1:8100", client=("127.0.0.1", 50000))      # the person at the server machine
 
@@ -220,8 +220,8 @@ def test_the_sign_in_guess_counter_forgets_quiet_addresses():
 
 def test_text_typed_into_the_sign_in_box_cannot_forge_log_lines(make_app, caplog):
     from test_auth_erpnext import FakeErp
-    from erp_agents.auth.erpnext import ErpNextLogin
-    from erp_agents.bootstrap import build_app
+    from erp_agents.core.auth.erpnext import ErpNextLogin
+    from erp_agents.core.bootstrap import build_app
     app = make_app()
     app.login = ErpNextLogin("http://erp.local", session_factory=FakeErp().session)
     app.sessions, app.throttle = SessionStore(app.login), LoginThrottle()
@@ -305,12 +305,13 @@ class _LeanAccountSession:
 
 
 def test_the_access_check_works_for_a_lean_service_account_that_cannot_read_its_own_roles():
-    from erp_agents.auth.access import NEEDS, check_service_account
+    from conftest import STOCK_NEEDS as NEEDS
+    from erp_agents.core.auth.access import check_service_account
     everything = {dt: [{"role": "Stock Assistant", "permlevel": 0, flag: 1} for d, flag in NEEDS if d == dt] for dt, _ in NEEDS}
     merged = {dt: [{"role": "Stock Assistant", "permlevel": 0, "read": 1, "create": 1}] for dt, _ in NEEDS}
-    rep = check_service_account(_LeanAccountSession(["Stock Assistant"], merged), "http://erp.local")
+    rep = check_service_account(_LeanAccountSession(["Stock Assistant"], merged), "http://erp.local", NEEDS)
     assert rep.user == "assistant@acme.com" and rep.roles == ["Stock Assistant"] and rep.missing == [] and rep.surplus == []
-    rep = check_service_account(_LeanAccountSession(["Stock Assistant", "System Manager", "HR Manager"], merged), "http://erp.local")
+    rep = check_service_account(_LeanAccountSession(["Stock Assistant", "System Manager", "HR Manager"], merged), "http://erp.local", NEEDS)
     assert rep.surplus == ["HR Manager", "System Manager"] and rep.risky_held == ["HR Manager", "System Manager"]
-    rep = check_service_account(_LeanAccountSession(["Nothing Useful"], merged), "http://erp.local")
+    rep = check_service_account(_LeanAccountSession(["Nothing Useful"], merged), "http://erp.local", NEEDS)
     assert rep.missing, "an account without the needed permissions is reported as missing them"

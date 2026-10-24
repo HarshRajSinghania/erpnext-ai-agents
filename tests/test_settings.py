@@ -2,13 +2,14 @@ import pytest
 
 from erp_agents.core.settings_store import PermissionDenied, SettingsError, SettingsStore
 from erp_agents.core.storage import Database
+from erp_agents.packs.stock_procurement.settings import attach
 
 from conftest import OWNER, VIEWER
 
 
 @pytest.fixture
 def store():
-    return SettingsStore(Database(":memory:"), base_policy={"min_days_cover": 7})
+    return attach(SettingsStore(Database(":memory:")), base_policy={"min_days_cover": 7})
 
 
 def test_precedence_config_global_group_item(store):
@@ -92,4 +93,4 @@ def test_reset_scope_removes_all_overrides(store):
 
 def test_bad_yaml_defaults_fail_fast():
     with pytest.raises(Exception):
-        SettingsStore(Database(":memory:"), base_policy={"min_qty": -1})
+        attach(SettingsStore(Database(":memory:")), base_policy={"min_qty": -1})

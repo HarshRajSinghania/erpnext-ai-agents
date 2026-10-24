@@ -6,17 +6,15 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from erp_agents.api.app import create_app
-from erp_agents.approvals.channels.base import decode_action, encode_action
-from erp_agents.approvals.channels.registry import build_channels, register_channel_type
-from erp_agents.approvals.channels.simple import ConsoleChannel, InboxChannel
-from erp_agents.approvals.channels.telegram import TelegramChannel
-from erp_agents.approvals.channels.whatsapp import WhatsAppChannel
-from erp_agents.approvals.inbound import process_inbound
-from erp_agents.approvals.models import (
-    ApprovalOption, ApprovalRecord, ApprovalRequest, InboundEvent, Section,
-)
-from erp_agents.erp.mock import MockERP
+from erp_agents.core.api.app import create_app
+from erp_agents.core.approvals.channels.base import decode_action, encode_action
+from erp_agents.core.approvals.channels.registry import build_channels, register_channel_type
+from erp_agents.core.approvals.channels.simple import ConsoleChannel, InboxChannel
+from erp_agents.core.approvals.channels.telegram import TelegramChannel
+from erp_agents.core.approvals.channels.whatsapp import WhatsAppChannel
+from erp_agents.core.approvals.inbound import process_inbound
+from erp_agents.core.approvals.models import ApprovalOption, ApprovalRecord, ApprovalRequest, InboundEvent, Section
+from erp_agents.core.erp.mock import MockERP
 
 from conftest import FakeHTTP
 
@@ -186,7 +184,7 @@ def test_each_request_kind_can_use_its_own_template_or_none():
 
 
 def test_purchase_order_summary_uses_recommendation_and_other_vendors():
-    from erp_agents.approvals.channels.whatsapp import template_summary
+    from erp_agents.core.approvals.channels.whatsapp import template_summary
     record = rec()
     record.request.headline = "Order 500 pcs of Bolt from Alpha for 5,000.00."
     record.request.sections = [
@@ -200,7 +198,7 @@ def test_purchase_order_summary_uses_recommendation_and_other_vendors():
 
 
 def test_template_summary_is_one_line_with_the_key_facts():
-    from erp_agents.approvals.channels.whatsapp import template_summary
+    from erp_agents.core.approvals.channels.whatsapp import template_summary
     record = rec()
     record.request.headline = "Bolt M8:\n 40 pcs on hand,   5 days left."
     record.request.sections = [

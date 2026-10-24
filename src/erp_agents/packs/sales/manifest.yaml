@@ -1,0 +1,9 @@
+# Sales: reserved for a future sales agent. Nothing is implemented: no tools, no approvals, no settings, no code.
+name: sales
+version: 0.0.1
+title: Sales
+summary: Reserved for a future sales agent (quotations, orders, customers). An empty skeleton.
+status: skeleton
+requires_core: ">=0.1"
+enabled_by_default: false
+depends_on: []

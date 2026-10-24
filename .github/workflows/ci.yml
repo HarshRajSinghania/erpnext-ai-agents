@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,agents]"
       - name: bandit (any finding fails the build; a justified exception carries a nosec comment that says why)
-        run: python -m bandit -r src -q
+        run: python -m bandit -r src -q -x "src/erp_agents/packs/*/tests/*"
       - name: pip-audit (known vulnerabilities in the dependencies)
         run: python -m pip_audit --skip-editable
 
@@ -51,9 +51,11 @@ jobs:
       - name: Scan
         run: |
           set -u
-          if git grep -nIE "(EAA[A-Za-z0-9]{40,}|[0-9]{8,10}:[A-Za-z0-9_-]{35}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)" -- . ':!docs/*.md' ; then
+          # git grep exits 0 = something found, 1 = nothing found, anything else = the scan itself failed (a bad pattern must not pass as "clean")
+          scan() { rc=0; git grep -nIE "$@" || rc=$?; if [ "$rc" -gt 1 ]; then echo "the scan itself failed (git grep exit $rc)"; exit 2; fi; return "$rc"; }
+          if scan '(EAA[A-Za-z0-9]{40,}|[0-9]{8,10}:[A-Za-z0-9_-]{35}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' -- . ':!docs/*.md' ; then
             echo "A token or key looks committed. Rotate it and remove it from history."; exit 1
           fi
-          if git grep -nIE "(gmail\.com|outlook\.com|yahoo\.com|192\.168\.[0-9]+\.[0-9]+|C:\\Users\\)" -- . ':!LICENSE' ':!tests/test_assistant.py' ':!tests/test_hardening.py' ':!tests/test_agents.py' ; then
+          if scan '(gmail\.com|outlook\.com|yahoo\.com|192\.168\.[0-9]+\.[0-9]+|C:\\Users\\)' -- . ':!LICENSE' ':!src/erp_agents/packs/stock_procurement/tests/test_assistant.py' ':!tests/test_hardening.py' ':!src/erp_agents/packs/stock_procurement/tests/test_agents.py' ; then
             echo "Personal data or a machine address looks committed. Use placeholders."; exit 1
           fi

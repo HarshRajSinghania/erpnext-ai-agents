@@ -1,4 +1,9 @@
-"""Admin-editable settings with scope inheritance and a full audit trail."""
+"""Admin-editable settings with scope inheritance and a full audit trail.
+
+The store itself knows only the core's settings (the system settings of the platform, the assistant, the AI agents, the switch for packs). A pack REGISTERS what it adds:
+sections (`register_section`), the system-settings fields it extends (`extend_system`) and its thresholds that can be overridden per item group and per item (`register_scoped`).
+Everything registered is validated, audited and editable the same way as the core's own.
+"""
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
@@ -6,14 +11,11 @@ from typing import Any, Callable, Optional
 from pydantic import ValidationError
 
 from .common import Actor, Clock, iso, utcnow
-from .policy import AgentSettings, AssistantSettings, CalendarSettings, Policy, ProcurementSettings, SystemSettings
+from .packs import PackSettings
+from .policy import AgentSettings, AssistantSettings, SystemSettings
 from .storage import Database, dumps, loads
 
 SCOPES = ("global", "group", "item")
-# Settings that were removed. Saved values for them are ignored (and dropped on the next save of that module).
-RETIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    "procurement": ("tax_rules", "home_country", "unknown_origin", "po_tax_template_import", "po_tax_template_domestic"),
-}
 GLOBAL_KEY = "*"
 
 
@@ -29,31 +31,98 @@ class SettingsStore:
     def __init__(
         self,
         db: Database,
-        base_policy: Optional[dict] = None,
         base_system: Optional[dict] = None,
         clock: Clock = utcnow,
-        base_procurement: Optional[dict] = None,
         base_assistant: Optional[dict] = None,
-        base_calendar: Optional[dict] = None,
         base_agents: Optional[dict] = None,
+        base_packs: Optional[dict] = None,
     ) -> None:
         self.db = db
         self.clock = clock
-        self._base_policy = base_policy or {}
         self._base_system = base_system or {}
-        # Module settings (one flat model per module, admin-editable, audited). A new module adds one entry here.
+        self._system_model: type = SystemSettings
+        # Module settings (one flat model per module, admin-editable, audited). The core's own are here; a pack adds its own with register_section().
         self._sections: dict[str, tuple[type, dict]] = {
-            "procurement": (ProcurementSettings, base_procurement or {}),
             "assistant": (AssistantSettings, base_assistant or {}),
-            "calendar": (CalendarSettings, base_calendar or {}),
             "agents": (AgentSettings, base_agents or {}),
+            "packs": (PackSettings, base_packs or {}),
         }
+        # Settings that were removed. Saved values for them are ignored (and dropped on the next save of that module).
+        self._retired: dict[str, tuple[str, ...]] = {}
+        self._scoped: Optional[tuple[str, type, dict]] = None
+        # Set when a pack that adds system fields is switched off: its values stay in the settings file and the database, but are ignored (not an error) until it is on again.
+        self.ignore_unknown_system = False
         self._listeners: list[Callable[[str, str], None]] = []
-        # Fail fast if the yaml defaults themselves are invalid.
-        Policy.model_validate(self._base_policy)
-        SystemSettings.model_validate(self._base_system)
+        for model, base in self._sections.values():                # the core's own sections are checked at once; the system settings wait for the packs (validate())
+            model.model_validate(base)
+
+    def _system_values(self, *layers: dict) -> dict:
+        merged: dict[str, Any] = {}
+        for layer in layers:
+            merged.update(layer)
+        if self.ignore_unknown_system:
+            known = self._system_model.model_fields
+            merged = {k: v for k, v in merged.items() if k in known}
+        return merged
+
+    def validate(self) -> None:
+        """Fail fast if the values in the settings file are invalid. Called once every pack has registered, because a pack may add fields to the system settings."""
+        self._system_model.model_validate(self._system_values(self._base_system))
         for model, base in self._sections.values():
             model.model_validate(base)
+        if self._scoped is not None:
+            self._scoped[1].model_validate(self._scoped[2])
+
+    # ---------------------------------------------------------------- what a pack registers
+    def register_section(self, name: str, model: type, base: Optional[dict] = None, retired: tuple[str, ...] = ()) -> None:
+        """Add a module's settings section. Registering the same section twice with the same model is harmless; a different model under a taken name is an error."""
+        base = base or {}
+        if name in self._sections:
+            if self._sections[name][0] is not model:
+                raise SettingsError(f"the settings section {name!r} is already registered by something else")
+            return
+        model.model_validate(base)
+        self._sections[name] = (model, base)
+        if retired:
+            self._retired[name] = tuple(retired)
+
+    def extend_system(self, model: type) -> None:
+        """A pack adds fields to the system settings by passing a subclass of SystemSettings. Several packs combine; the values from the settings file are checked by validate()."""
+        if not issubclass(model, SystemSettings):
+            raise SettingsError("extend_system needs a subclass of SystemSettings")
+        if issubclass(self._system_model, model):
+            return
+        if issubclass(model, self._system_model):
+            combined = model
+        else:
+            combined = type("SystemSettings", (model, self._system_model), {})
+        self._system_model = combined
+
+    def register_scoped(self, kind: str, model: type, base: Optional[dict] = None) -> None:
+        """Add settings that can be overridden per item group and per item (the stock thresholds). One such kind is supported: its saved rows keep the plain scope names
+        (global, group, item), which is how databases made before packs existed already store them."""
+        base = base or {}
+        if self._scoped is not None:
+            if self._scoped[0] == kind and self._scoped[1] is model:
+                return
+            raise SettingsError("only one settings kind with per-group and per-item overrides is supported")
+        model.model_validate(base)
+        self._scoped = (kind, model, base)
+
+    def _scope(self, kind: str) -> tuple[type, dict]:
+        if self._scoped is None or self._scoped[0] != kind:
+            raise SettingsError(f"unknown scoped settings {kind!r} (is the pack that adds it switched on?)")
+        return self._scoped[1], self._scoped[2]
+
+    def schemas(self) -> dict[str, Any]:
+        """Field metadata for admin UIs, for everything registered (name, type, default, description, constraints)."""
+        out: dict[str, Any] = {}
+        if self._scoped is not None:
+            out[self._scoped[0]] = self._scoped[1].model_json_schema()["properties"]
+        out["system"] = self._system_model.model_json_schema()["properties"]
+        for name, (model, _base) in self._sections.items():
+            out[name] = model.model_json_schema()["properties"]
+        return out
 
     # ---------------------------------------------------------------- listeners
     def on_change(self, fn: Callable[[str, str], None]) -> None:
@@ -67,16 +136,17 @@ class SettingsStore:
         )
         return loads(row["data_json"]) if row else {}
 
-    def effective_policy(self, item_code: Optional[str] = None, item_group: Optional[str] = None) -> Policy:
-        return self._resolve(item_code, item_group)[0]
+    def effective_scoped(self, kind: str, item_code: Optional[str] = None, item_group: Optional[str] = None) -> Any:
+        return self._resolve(kind, item_code, item_group)[0]
 
-    def policy_with_sources(self, item_code: Optional[str] = None, item_group: Optional[str] = None) -> tuple[Policy, dict[str, str]]:
-        """Effective policy plus, for every field an admin changed, where it came from."""
-        return self._resolve(item_code, item_group)
+    def scoped_with_sources(self, kind: str, item_code: Optional[str] = None, item_group: Optional[str] = None) -> tuple[Any, dict[str, str]]:
+        """Effective settings plus, for every field an admin changed, where it came from."""
+        return self._resolve(kind, item_code, item_group)
 
-    def _resolve(self, item_code: Optional[str], item_group: Optional[str]) -> tuple[Policy, dict[str, str]]:
-        merged: dict[str, Any] = dict(self._base_policy)
-        sources: dict[str, str] = {k: "config file" for k in self._base_policy}
+    def _resolve(self, kind: str, item_code: Optional[str], item_group: Optional[str]) -> tuple[Any, dict[str, str]]:
+        model, base = self._scope(kind)
+        merged: dict[str, Any] = dict(base)
+        sources: dict[str, str] = {k: "config file" for k in base}
         layers = [("global", GLOBAL_KEY)]
         if item_group:
             layers.append(("group", item_group))
@@ -88,18 +158,17 @@ class SettingsStore:
                 merged[field] = value
                 sources[field] = f"{scope_type}{'' if scope_type == 'global' else ' ' + repr(key)} override"
         try:
-            return Policy.model_validate(merged), sources
+            return model.model_validate(merged), sources
         except ValidationError as exc:
             raise SettingsError(f"Invalid effective policy for item={item_code!r} group={item_group!r}: {_first_error(exc)}") from exc
 
-    def system(self) -> SystemSettings:
-        merged = {**self._base_system, **self.get_overrides("system", GLOBAL_KEY)}
-        return SystemSettings.model_validate(merged)
+    def system(self) -> Any:
+        return self._system_model.model_validate(self._system_values(self._base_system, self.get_overrides("system", GLOBAL_KEY)))
 
     def _section_overrides(self, kind: str) -> dict[str, Any]:
         """Saved values for a module, without settings that no longer exist (so an old save can never break loading)."""
         _model, _base = self._sections[kind]
-        return {k: v for k, v in self.get_overrides(kind, GLOBAL_KEY).items() if k not in RETIRED_FIELDS.get(kind, ())}
+        return {k: v for k, v in self.get_overrides(kind, GLOBAL_KEY).items() if k not in self._retired.get(kind, ())}
 
     def section(self, kind: str) -> Any:
         if kind not in self._sections:
@@ -107,30 +176,29 @@ class SettingsStore:
         model, base = self._sections[kind]
         return model.model_validate({**base, **self._section_overrides(kind)})
 
-    def procurement(self) -> ProcurementSettings:
-        return self.section("procurement")
+    def agents(self) -> AgentSettings:
+        return self.section("agents")
 
     def assistant(self) -> AssistantSettings:
         return self.section("assistant")
 
-    def agents(self) -> AgentSettings:
-        return self.section("agents")
-
-    def calendar(self) -> CalendarSettings:
-        return self.section("calendar")
+    def packs(self) -> PackSettings:
+        return self.section("packs")
 
     # ---------------------------------------------------------------- writes (admin only)
-    def update_policy(
+    def update_scoped(
         self,
         actor: Actor,
+        kind: str,
         scope_type: str,
         scope_key: str,
         set_values: Optional[dict[str, Any]] = None,
         clear: Optional[list[str]] = None,
-    ) -> Policy:
+    ) -> Any:
         """`set_values` may contain None for nullable thresholds (e.g. min_qty=None switches the rule off).
         `clear` removes an override so the value is inherited again."""
         self._require_admin(actor)
+        model, base = self._scope(kind)
         if scope_type not in SCOPES:
             raise SettingsError(f"scope_type must be one of {SCOPES}")
         if scope_type == "global":
@@ -139,7 +207,7 @@ class SettingsStore:
             raise SettingsError("scope_key is required for group/item scope")
         set_values = set_values or {}
         clear = clear or []
-        unknown = [f for f in [*set_values, *clear] if f not in Policy.model_fields]
+        unknown = [f for f in [*set_values, *clear] if f not in model.model_fields]
         if unknown:
             raise SettingsError(f"Unknown policy field(s): {', '.join(unknown)}")
 
@@ -148,35 +216,36 @@ class SettingsStore:
         new.update(set_values)
 
         # Validate: the new override layered on config + global (+ nothing else known here).
-        probe = {**self._base_policy}
+        probe = {**base}
         if scope_type != "global":
             probe.update(self.get_overrides("global", GLOBAL_KEY))
         probe.update(new)
         try:
-            validated = Policy.model_validate(probe)
+            validated = model.model_validate(probe)
         except ValidationError as exc:
             raise SettingsError(_first_error(exc)) from exc
 
-        self._save("policy", scope_type, scope_key, old, new, actor)
+        self._save(kind, scope_type, scope_key, old, new, actor)
         return validated
 
-    def reset_scope(self, actor: Actor, scope_type: str, scope_key: str) -> None:
+    def reset_scoped(self, actor: Actor, kind: str, scope_type: str, scope_key: str) -> None:
         self._require_admin(actor)
+        self._scope(kind)
         if scope_type == "global":
             scope_key = GLOBAL_KEY
         old = self.get_overrides(scope_type, scope_key)
         if old:
-            self._save("policy", scope_type, scope_key, old, {}, actor)
+            self._save(kind, scope_type, scope_key, old, {}, actor)
 
-    def update_system(self, actor: Actor, set_values: dict[str, Any]) -> SystemSettings:
+    def update_system(self, actor: Actor, set_values: dict[str, Any]) -> Any:
         self._require_admin(actor)
-        unknown = [f for f in set_values if f not in SystemSettings.model_fields]
+        unknown = [f for f in set_values if f not in self._system_model.model_fields]
         if unknown:
             raise SettingsError(f"Unknown system field(s): {', '.join(unknown)}")
         old = self.get_overrides("system", GLOBAL_KEY)
         new = {**old, **set_values}
         try:
-            validated = SystemSettings.model_validate({**self._base_system, **new})
+            validated = self._system_model.model_validate(self._system_values(self._base_system, new))
         except ValidationError as exc:
             raise SettingsError(_first_error(exc)) from exc
         self._save("system", "system", GLOBAL_KEY, old, new, actor)
@@ -201,9 +270,6 @@ class SettingsStore:
             raise SettingsError(_first_error(exc)) from exc
         self._save(kind, kind, GLOBAL_KEY, old, new, actor)
         return validated
-
-    def update_procurement(self, actor: Actor, set_values: dict[str, Any], clear: Optional[list[str]] = None) -> ProcurementSettings:
-        return self.update_section(actor, "procurement", set_values, clear)
 
     # ---------------------------------------------------------------- audit
     def audit(self, limit: int = 100, scope_type: Optional[str] = None, scope_key: Optional[str] = None) -> list[dict]:

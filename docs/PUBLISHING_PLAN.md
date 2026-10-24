@@ -7,7 +7,7 @@
 
 ## Status on 25 Oct 2026
 
-Code: 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026; `bandit` and `pip-audit` report nothing. Inventory monitor, vendor selector, landed cost, demand calendar, approval channels (console, inbox, Telegram,
+Code: 1,201 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026; `bandit` and `pip-audit` report nothing. Inventory monitor, vendor selector, landed cost, demand calendar, approval channels (console, inbox, Telegram,
 WhatsApp), the "Ask why" assistant, chat, the AI agents, the MCP server and the web console exist. Checked live against an ERPNext v16 test instance on 20-22 Oct 2026 (reads,
 vendor comparison, sign-in, permissions, draft Purchase Order and Material Request; see [E2E_TEST_RESULTS.md](E2E_TEST_RESULTS.md)); that live suite has **not** been re-run since.
 Telegram and WhatsApp messages were delivered on the author's own accounts; WhatsApp button replies are covered by fake-transport tests only.
@@ -38,7 +38,7 @@ Not in the 18 Oct list, and still open for a public release: the owner's decisio
 
 | # | Item | Why it blocks | How to close it |
 |---|---|---|---|
-| B1 | **Vendor prices are compared in each vendor's own currency, with no conversion.** `erp/erpnext.py` reads the Purchase Order Item `rate` (document currency) and the scoring never looks at currency. | Your test catalogue has Indian vendors at Rs 10.10 and Vietnamese/Chinese vendors at 0.096 / 1.021 (their own currency). Unconverted, the import looks about 100x cheaper and **wins the comparison with a wrong "why this vendor" message**. This is the worst kind of bug for this product. | Read `base_rate` (company currency) and the PO `conversion_rate`; compare and display in company currency; show the original price as a note ("USD 0.096 at 83.2"). Add tests with a USD vendor vs an INR vendor. Test case D3 in the test plan proves the fix. |
+| B1 | **Vendor prices are compared in each vendor's own currency, with no conversion.** `core/erp/erpnext.py` reads the Purchase Order Item `rate` (document currency) and the scoring never looks at currency. | Your test catalogue has Indian vendors at Rs 10.10 and Vietnamese/Chinese vendors at 0.096 / 1.021 (their own currency). Unconverted, the import looks about 100x cheaper and **wins the comparison with a wrong "why this vendor" message**. This is the worst kind of bug for this product. | Read `base_rate` (company currency) and the PO `conversion_rate`; compare and display in company currency; show the original price as a note ("USD 0.096 at 83.2"). Add tests with a USD vendor vs an INR vendor. Test case D3 in the test plan proves the fix. |
 | B2 | **Nothing has run against live WhatsApp.** Payload shapes follow Meta's docs but are unverified. | You cannot publish a "WhatsApp approvals" feature that has never delivered a message. | Run test plan section C with a real Meta sandbox number. Fix whatever Meta rejects. |
 | B3 | **Draft Purchase Order creation has never run against a live ERPNext** (README: "Not tested against a live ERPNext order"). | It is the one write the agent makes. | Run test cases D5/D6. Check supplier, qty, rate, required-by date, tax template, and that the PO is Draft. |
 | B4 | **Secrets and local files must not reach git.** `.env` exists in the folder (ignored by `.gitignore`, good). `tools/testdata/manifest.jsonl` (about 660 KB) and `tools/testdata/*.log` are not ignored. | A leaked WhatsApp token or ERPNext key is public the moment you push. | Add to `.gitignore` (section 2 below); run `git status` before the first commit; never `git add .` blindly. If a secret was ever committed, rotate it, do not just delete the file. |
@@ -94,12 +94,12 @@ channel-neutral approvals, plain-maths analysis) makes the port mostly a swap of
 
 | Today | In the Frappe app |
 |---|---|
-| `erp/erpnext.py` (REST + API key) | `FrappeERPClient` using `frappe.get_all` / `frappe.get_doc` in-process. No API key, faster, permission-checked. |
+| `core/erp/erpnext.py` (REST + API key) | `FrappeERPClient` using `frappe.get_all` / `frappe.get_doc` in-process. No API key, faster, permission-checked. |
 | SQLite (`storage.py`) | DocTypes: Agent Settings (Single), Inventory Alert, Approval Request, Purchase Proposal, Work Order, Settings Audit. |
 | APScheduler | `hooks.py` `scheduler_events` (cron) and `frappe.enqueue` for the 3-minute procurement pass. |
 | `/webhooks/whatsapp` (FastAPI) | A whitelisted guest method, `/api/method/erp_agents.webhooks.whatsapp`, with the same signature check. Frappe Cloud already gives you public HTTPS, which removes the tunnel step. |
 | Tokens in `.env` | `Password` fields in Agent Settings. |
-| `web/index.html` console | Desk workspace plus list/form views; the approval inbox as a Desk page. |
+| `packs/stock_procurement/web/index.html` console | Desk workspace plus list/form views; the approval inbox as a Desk page. |
 | Telegram polling thread | Webhook mode only. |
 | Ollama "Ask why" | Optional, off by default; local Ollama is not available on Frappe Cloud. |
 

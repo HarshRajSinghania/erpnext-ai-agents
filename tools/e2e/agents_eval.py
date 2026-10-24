@@ -22,9 +22,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from erp_agents.assistant.verify import numbers
-from erp_agents.bootstrap import build_app
-from erp_agents.config import load_config
+from erp_agents.core.assistant.verify import numbers
+from erp_agents.core.bootstrap import build_app
+from erp_agents.core.config import load_config
 from erp_agents.core.common import Actor
 
 ASKER = Actor("eval", frozenset({"viewer"}), "eval")
