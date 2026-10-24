@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -13,6 +14,8 @@ from .approvals.channels.telegram import TelegramChannel
 from .approvals.render import render_plain
 from .bootstrap import App, build_app
 from .config import load_config
+from .core import doctor as doctor_checks
+from .core import ops
 from .core.common import Actor
 from .core.settings_store import SettingsError
 from .inventory.analysis import SEV_NAMES, Analysis
@@ -403,6 +406,48 @@ def cmd_agents(args) -> int:
     return 0
 
 
+def _db_path(args) -> str:
+    return str((load_config(args.config).get("database") or {}).get("path", "./data/erp_agents.db"))
+
+
+def cmd_doctor(args) -> int:
+    """A read-only check of this installation: files, permissions, settings, database, backups. No network, no change."""
+    cfg = load_config(args.config)
+    path = args.config or os.environ.get("ERP_AGENTS_CONFIG", "config/settings.yaml")
+    checks = doctor_checks.run_doctor(cfg, path)
+    print(doctor_checks.render(checks))
+    return doctor_checks.exit_code(checks, strict=args.strict)
+
+
+def cmd_backup(args) -> int:
+    db = _db_path(args)
+    try:
+        made = ops.backup_database(db, args.to)
+    except ops.OpsError as exc:
+        print(f"Backup refused: {exc}")
+        return 1
+    print(f"Backup made and verified: {made}\n"
+          "It holds the database only. Copy .env and the settings file separately (they are not in it), and keep the copies somewhere other than this computer.")
+    return 0
+
+
+def cmd_backup_verify(args) -> int:
+    verdict = ops.verify_database(args.file)
+    print(f"{args.file}: {verdict.explain()}")
+    return 0 if verdict.ok else 1
+
+
+def cmd_restore(args) -> int:
+    db = _db_path(args)
+    try:
+        kept = ops.restore_database(args.file, db, force=args.force)
+    except ops.OpsError as exc:
+        print(f"Restore refused, nothing was changed: {exc}")
+        return 1
+    print(f"Restored {args.file} to {db}." + (f"\nThe database it replaced is kept as {kept} (delete it yourself when you are sure)." if kept else ""))
+    return 0
+
+
 def cmd_serve(args) -> int:
     from contextlib import asynccontextmanager
 
@@ -410,6 +455,22 @@ def cmd_serve(args) -> int:
     from .api.app import create_app
     from .scheduler import AgentScheduler
 
+    db_path = _db_path(args)
+    lock = ops.InstanceLock(db_path) if db_path != ":memory:" else None
+    try:
+        if lock is not None:
+            lock.acquire()                      # one running instance per database: before the file is even opened
+    except ops.AlreadyRunning as exc:
+        print(f"Not started: {exc}")
+        return 1
+    try:
+        return _serve(args, create_app, uvicorn, asynccontextmanager, AgentScheduler)
+    finally:
+        if lock is not None:
+            lock.release()
+
+
+def _serve(args, create_app, uvicorn, asynccontextmanager, AgentScheduler) -> int:
     app = _app(args)
     scheduler = AgentScheduler(app)
 
@@ -513,6 +574,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--force", action="store_true", help="review: ask again even if this request was reviewed")
     s.add_argument("--limit", type=int, default=15, help="tasks: how many; usage: how many days back")
     s.set_defaults(fn=cmd_agents)
+
+    s = sub.add_parser("doctor", help="read-only check of this installation: file permissions, exposure, settings, database, backups (no network)")
+    s.add_argument("--strict", action="store_true", help="exit with an error for warnings too, not only for things to fix now")
+    s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("backup", help="a consistent, verified copy of the database (safe while the application runs)")
+    s.add_argument("--to", help="file to write (default: data/backups/<name>-<time>.db); an existing file is never overwritten")
+    s.set_defaults(fn=cmd_backup)
+
+    s = sub.add_parser("backup-verify", help="is this file a complete, undamaged database that this version understands?")
+    s.add_argument("file")
+    s.set_defaults(fn=cmd_backup_verify)
+
+    s = sub.add_parser("restore", help="put a verified backup in place (stop the application first; the database it replaces is kept beside it)")
+    s.add_argument("file")
+    s.add_argument("--force", action="store_true", help="replace the database that is there")
+    s.set_defaults(fn=cmd_restore)
 
     s = sub.add_parser("serve", help="start the API, scheduler and channel listeners")
     s.add_argument("--host")

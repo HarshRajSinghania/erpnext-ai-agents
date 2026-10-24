@@ -1,4 +1,6 @@
-# E2E findings (18 Oct 2026)
+# E2E findings (18 Oct 2026, with later entries)
+
+> The first part of this file records the live run of **18 Oct 2026** and its totals are that run's. Later sections are dated. The live suite was last run on 22 Oct 2026 and has not been re-run since; changes after that are covered by the automated tests (current result: 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026).
 
 Full case-by-case table: [E2E_TEST_RESULTS.md](E2E_TEST_RESULTS.md) (regenerate with `python -m tools.e2e.run_live`).
 Result of this run: **63 PASS, 0 FAIL, 7 NOT RUN, 8 BLOCKED** (78 cases, after the fixes below). The suite ran against the live ERPNext (company Test Trading Co) with the agent in memory and a fake WhatsApp transport, so nothing reached Meta or your phone. ERPNext was only read, except one Draft Purchase Order that PO-05 created and deleted again (530 POs remain, as loaded).

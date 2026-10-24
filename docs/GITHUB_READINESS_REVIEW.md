@@ -55,3 +55,20 @@ Checked against the repository, then fixed where it needed no decision from the 
 | AUTH-02 service-account roles, ERPNext bound to localhost | Still the owner's decision (credential rotation and Docker settings). |
 
 New with this follow-up: [DEVELOPING.md](DEVELOPING.md), the rules and audit for keeping the Frappe Marketplace port a swap of the edges.
+
+## Status, 25 Oct 2026
+
+A second review (24 and 25 Oct 2026) re-checked this one against the repository. Verified against the files, not against the text above:
+
+| Item | State |
+|---|---|
+| `LICENSE` | Present: the full GPL-3.0 text (674 lines). `pyproject.toml`: `license = "GPL-3.0-or-later"`, `license-files = ["LICENSE"]`. |
+| `.gitignore` | Covers `.env` and `.env.*` (not `.env.example`), `data/`, `*.db` and its journal files, logs, the generated test data, caches, editor folders and `ui-design/`. Also lock files and the copies the backup and upgrade tools leave beside a database. |
+| `.env.example` | Only placeholders: every key empty except `TELEGRAM_MODE=polling` and `WHATSAPP_TEMPLATE_LANGUAGE=en`. No default verify token. |
+| `SECURITY.md` | Present; reporting is by GitHub private advisory. The link target in `.github/ISSUE_TEMPLATE/config.yml` still says `REPLACE-WITH-OWNER`. |
+| Git repository | Now exists **locally** (created on 25 Oct 2026 so that each piece of work could be committed). Nothing is pushed; no remote is configured. The baseline commit was scanned: no `.env`, no `data/`, no `*.db`, no logs, no generated test data, no token or key patterns, no personal addresses. Use [FIRST_COMMIT_CHECKLIST.md](FIRST_COMMIT_CHECKLIST.md) for any other first commit. |
+| Python 3.10 argparse bug (blocker 5) | Fixed in code on 21 Oct; since 25 Oct a deterministic test reproduces the 3.10 split on any version. Only Python 3.14 is installed here: the CI matrix (3.10 to 3.14) is the real check, and it has not run because no repository is connected. |
+| Personal paths in docs | Removed (`C:\ERP\erp-agents` in the E2E plan and the publishing plan). `config/settings.erpnext.yaml` is the owner's live configuration (company name, no secrets); decide before publishing whether it stays in the repository or is replaced by an example. |
+| Tests | 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026. |
+| CI | Tests (Linux and Windows, 3.10 to 3.14), `bandit` and `pip-audit`, and a scan for secrets and personal data. It matches `pyproject.toml` (`requires-python >= 3.10`, extras `dev` and `agents`). Not yet run on GitHub. |
+| Marketplace | Unchanged: **not** a Frappe app, not submitted, not installable from the Marketplace. See [FRAPPE_APP_PLAN.md](FRAPPE_APP_PLAN.md). |

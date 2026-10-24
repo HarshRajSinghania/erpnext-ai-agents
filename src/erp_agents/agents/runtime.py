@@ -81,12 +81,14 @@ class Evidence:
         return [r.result for r in self.runs if r.name == tool and r.ok]
 
     def pool(self) -> list[float]:
+        """The numbers an answer may contain: those in the person's question and those in the RESULTS of calls that succeeded. A call's arguments never count, failed or not:
+        a failed call returned nothing, so a number the model typed into it is the model's own; and for a call that succeeded, every argument that is a fact comes back in its
+        result (usage_history echoes `weeks`, vendor_options and prepare_order_request echo `qty`, stock_overview's `limit` is reported as `listed`)."""
         if self._pool is None:
             vals: list[float] = list(numbers(self.question))
             for r in self.runs:
                 if r.ok:
                     vals.extend(_leaf_numbers(r.result))
-                vals.extend(_leaf_numbers(r.args))
             self._pool = vals
         return self._pool
 

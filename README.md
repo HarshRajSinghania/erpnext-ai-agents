@@ -10,16 +10,18 @@ It runs on a laptop or a small VPS and needs only open-source software (Python, 
 
 > **Status: beta. Licence: GPL-3.0-or-later.**
 >
-> - Nearly 700 automated tests, run against a demo ERP and fake transports (`python -m pytest`).
+> - 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
 > - Checked live against an **ERPNext v16** test instance: reads, vendor comparison with duties and taxes, sign-in through ERPNext, permissions, and creation of a
 >   draft Purchase Order and Material Request ([docs/E2E_TEST_RESULTS.md](docs/E2E_TEST_RESULTS.md) lists every case and what passed, failed or was not run).
 >   Other ERPNext versions have not been tried.
 > - **Telegram and WhatsApp**: the automated tests use fake transports. Messages have been delivered live on the author's own accounts. **WhatsApp has not been
 >   tried against Meta's sandbox by anyone else**: expect to adjust the message template and buttons.
-> - **One process only.** SQLite and the in-process scheduler do not support several copies running at once. There are no schema migrations yet: keep a backup of
->   `data/` before upgrading.
-> - A Frappe app version (for the Frappe Cloud Marketplace) is planned, not started: see [docs/PUBLISHING_PLAN.md](docs/PUBLISHING_PLAN.md) and
->   [docs/DEVELOPING.md](docs/DEVELOPING.md).
+> - **One process only.** SQLite and the in-process scheduler do not support several copies running at once: `serve` takes a lock on the database and a second copy
+>   refuses to start. The database carries a schema version (a newer file is refused untouched; an older one is copied aside, then upgraded; no migration has been
+>   needed yet). `erp-agents backup` / `restore` / `doctor` are described in section 7c.
+> - **This is a standalone Python service (FastAPI + SQLite). It is not a Frappe app and is not on the Frappe Marketplace**, and cannot be installed from it. A Frappe app
+>   would be a separate port that reuses the business logic and replaces the edges: nothing of it is started. What it would take: [docs/FRAPPE_APP_PLAN.md](docs/FRAPPE_APP_PLAN.md),
+>   [docs/PUBLISHING_PLAN.md](docs/PUBLISHING_PLAN.md) and [docs/DEVELOPING.md](docs/DEVELOPING.md).
 >
 > Before relying on it: run `erp-agents erp-check` against your ERPNext, compare the numbers with Stock Balance, and run `erp-agents run-once --dry-run` for a week
 > (see "Rolling out safely").
@@ -34,10 +36,10 @@ Windows PowerShell (Python 3.10+ from python.org):
 cd erp-agents
 py -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install -e ".[dev,agents]"
 erp-agents demo                    # runs on a built-in demo ERP with 10 realistic scenarios
 erp-agents demo --interactive      # answer the approval requests yourself in the terminal
-python -m pytest                   # nearly 700 tests
+python -m pytest                   # over 1,100 tests (needs the dev and agents extras)
 ```
 
 The demo covers: healthy stock, a plain threshold breach, a **usage surge** early warning, a
@@ -371,7 +373,19 @@ Full report with what was found, fixed and still open: [docs/PENTEST_REPORT.md](
 * **Browser protections** are on for every answer (no framing, a policy that lets the console run only its own script, no caching of API answers). Size limits: webhooks 1 MB, sign-in 16 KB, other API calls 256 KB.
 * **API documentation** (`/docs`) is off; `server.docs: true` turns it on.
 * **The ERPNext account the app uses** should hold only the four roles it needs (Purchase User, Stock User, Accounts User, Accounts Manager), not System Manager. Check with `erp-agents erp-check-access`.
-* **Files.** `.env` should be readable only by you: `icacls .env /inheritance:r /grant:r "$env:USERNAME:F"`.
+* **Files.** `.env` should be readable only by you: `icacls .env /inheritance:r /grant:r "$env:USERNAME:F"`. `erp-agents doctor` checks this (section 7c).
+* **Who can answer from a chat.** WhatsApp and Telegram answers are trusted by the address written in `settings.yaml`, and are not re-checked against ERPNext when they arrive: remove a person from the file when they leave.
+
+### 7c. Operating it: `doctor`, backups, one instance
+
+```powershell
+erp-agents doctor              # read-only: file permissions, exposure, settings, database, backups, approvers. No network, changes nothing.
+erp-agents backup              # a verified copy of the database in data/backups/ (safe while the application runs; never overwrites)
+erp-agents backup-verify FILE  # is this a complete, undamaged database that this version understands?
+erp-agents restore FILE --force   # stop the application first; the database it replaces is kept beside it as .before-restore-<time>
+```
+
+`doctor` exits with an error for things to fix now (a secret written into the settings file, access keys open to anywhere with a weak key, a damaged database, MCP open to other machines without host names) and prints warnings for the rest (`--strict` makes warnings an error too). It cannot check the ERPNext service account (that needs ERPNext: `erp-agents erp-check-access`) or anything outside this computer. The backup holds the database only: copy `.env` and the settings file separately, and keep a copy somewhere other than this computer. Back up before every upgrade; an upgrade that changes the schema also copies the old file aside by itself.
 
 ## 8. How it fits the bigger ERP-agents design
 
@@ -563,16 +577,16 @@ Design, the tools, the checks, measured speed on a laptop CPU and the limits: [d
 - The language model is optional and local ("Ask why", chat routing and the AI agents). It never supplies a number: every answer is checked against the recorded facts, and
   if the check fails you are told there is not enough information. On a laptop CPU an 8-billion-parameter model needs minutes per task (docs/AGENTS.md has the
   measurements), so the agents run in the background and never sit on the path of an alert or an approval.
-- The MCP endpoint over HTTP signs callers in like the REST API; a public OAuth 2.1 authorization server (for AI products that discover the server by themselves) is not built yet.
+- The MCP endpoint over HTTP is private by design (the server machine only unless `mcp.remote` and `mcp.allowed_hosts` are set) and takes static bearer tokens: it is **not** an OAuth-protected MCP server and AI products that discover servers by themselves cannot use it. Use stdio, or your own private network (docs/AGENTS.md says what real OAuth support would take).
 - Recipients and channel credentials are in `settings.yaml` (restart to change); only thresholds and
   the schedule are editable live.
 - Single warehouse view (all warehouses summed, or the ones listed). No per-warehouse reorder levels.
 - Usage is derived from outgoing movements; it does not know about planned promotions or one-off
   bulk orders (the "busy week" line and confidence notes flag lumpy demand, but they do not remove it).
 - ERPNext adapter: tested against v16 only. PO arrival dates come from `schedule_date`.
-- Single instance: SQLite and the in-process scheduler do not support several replicas, and there is no schema versioning or migration yet.
+- Single instance: SQLite and the in-process scheduler do not support several replicas (a second `serve` is refused). Schema versioning and the migration mechanism exist, but no migration has been written yet, so the upgrade path has been tested with test migrations only.
+- Chat approvers are identified by the address in `settings.yaml` and are not re-checked against ERPNext at reply time.
 - WhatsApp: only delivered live on the author's own account; see the status note at the top.
-- Licence: GPL-3.0-or-later (see `LICENSE`), compatible with ERPNext and with the Frappe Cloud Marketplace, which accepts only open-source apps under MIT or a
-  GPL-compatible licence.
-- Roadmap: a Frappe app version ([docs/PUBLISHING_PLAN.md](docs/PUBLISHING_PLAN.md)), per-warehouse monitoring with a manager per location, and a sales and finance
+- Licence: GPL-3.0-or-later (see `LICENSE`), which the Frappe Cloud Marketplace accepts (open source under MIT or a GPL-compatible licence). That is a licence statement only: this repository is not a Frappe app and is not listed on the Marketplace.
+- Roadmap: a Frappe app version, a separate port ([docs/FRAPPE_APP_PLAN.md](docs/FRAPPE_APP_PLAN.md), [docs/PUBLISHING_PLAN.md](docs/PUBLISHING_PLAN.md)), per-warehouse monitoring with a manager per location, and a sales and finance
   agent. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md); security problems go to [SECURITY.md](SECURITY.md).

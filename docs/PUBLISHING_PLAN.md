@@ -1,9 +1,34 @@
 # Publishing plan: GitHub first, then the Frappe Cloud Marketplace
 
-Status of the code on 18 Oct 2026 (reviewed from the repository folder): **295 automated tests pass**.
-Inventory monitor, vendor selector (procurement), landed-cost comparison, demand calendar, approval
-channels (console, inbox, Telegram, WhatsApp), the "Ask why" assistant and the web console exist.
-Everything that talks to a live system (ERPNext, WhatsApp, Telegram) has only been tested against fakes.
+> **This plan was written on 18 Oct 2026.** The blocker tables below are kept as written, so that it is clear what was asked for; the section "Status on 25 Oct 2026" right
+> after this note says what has since been done and what has not. **This repository is a standalone Python service (FastAPI + SQLite). It is not a Frappe app, it has
+> not been submitted to the Frappe Marketplace, and nothing in it can be installed from there.** The Marketplace needs a separate port (section 3 here, and
+> [FRAPPE_APP_PLAN.md](FRAPPE_APP_PLAN.md)), which has not been started.
+
+## Status on 25 Oct 2026
+
+Code: 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026; `bandit` and `pip-audit` report nothing. Inventory monitor, vendor selector, landed cost, demand calendar, approval channels (console, inbox, Telegram,
+WhatsApp), the "Ask why" assistant, chat, the AI agents, the MCP server and the web console exist. Checked live against an ERPNext v16 test instance on 20-22 Oct 2026 (reads,
+vendor comparison, sign-in, permissions, draft Purchase Order and Material Request; see [E2E_TEST_RESULTS.md](E2E_TEST_RESULTS.md)); that live suite has **not** been re-run since.
+Telegram and WhatsApp messages were delivered on the author's own accounts; WhatsApp button replies are covered by fake-transport tests only.
+
+| Item (18 Oct) | Status on 25 Oct 2026 |
+|---|---|
+| B1 currency | Closed (fixed with tests, 21 Oct). |
+| B2 live WhatsApp | Partly: delivered live on the author's own account; button replies and templates are fake-transport tests; Meta's sandbox not tried by anyone else. |
+| B3 draft Purchase Order live | Closed: passed live on 20-22 Oct (PO-05, TRACE-01). |
+| B4 secrets and local files | `.gitignore` is complete (`.env`, `data/`, `*.db`, logs, generated test data, `ui-design/`). A local git repository now exists with a baseline commit that was scanned for secrets, personal data and local files; **nothing has been pushed or published**. Check any new first commit with [FIRST_COMMIT_CHECKLIST.md](FIRST_COMMIT_CHECKLIST.md). |
+| B5 default admin token | Closed: the demo key and any short key work only on the server machine; the live config has no fallback; access keys are local-only by default, demo included. |
+| B6 LICENSE | Closed: the GPL-3.0 text is in `LICENSE`; `pyproject.toml` says `GPL-3.0-or-later` (SPDX) and ships the file. |
+| S1 README | Rewritten (status block, limits). |
+| S2 CI | `.github/workflows/ci.yml`: tests on Linux and Windows, Python 3.10-3.14; `bandit` and `pip-audit`; a scan for secrets and personal data. **Not yet run on GitHub**: no repository is connected. |
+| S3 `pyproject.toml` | SPDX licence and `license-files` done; `tools/` and `tests/` are not in the wheel. **Authors and project URLs are still missing** (they need the owner's name, contact and repository URL). |
+| S4 WhatsApp setup doc | The README describes the templates; no separate `docs/whatsapp-setup.md` with screenshots. |
+| S5 per-warehouse levels, sales and finance agents | Not started (roadmap). |
+| S6 test-data generator | Kept as a dev tool; the generated manifest is git-ignored. |
+
+Not in the 18 Oct list, and still open for a public release: the owner's decisions on the service account's roles, ERPNext's network exposure, tunnel mode and folder permissions
+(see [PENTEST_REPORT.md](PENTEST_REPORT.md), "Re-validation, 25 Oct 2026"), the repository's name and URL, and the Marketplace port.
 
 ---
 
@@ -35,6 +60,9 @@ Everything that talks to a live system (ERPNext, WhatsApp, Telegram) has only be
 
 ## 2. Phase 1: GitHub (about 1 day after the blockers)
 
+> Status 25 Oct 2026: step 1 below (`git init`) has been done locally and the baseline commit was checked; steps 3 to 6 (push, branch protection, tag, release) have **not** been done
+> and need the owner. Before any push, run the checks in [FIRST_COMMIT_CHECKLIST.md](FIRST_COMMIT_CHECKLIST.md) on whatever is about to be pushed.
+
 1. **Clean the folder** (PowerShell, in the repository folder):
    ```powershell
    Add-Content .gitignore "`ntools/testdata/manifest.jsonl`ntools/testdata/*.log`n*.db`n.vscode/`n.env.*`n!.env.example"
@@ -56,6 +84,8 @@ Everything that talks to a live system (ERPNext, WhatsApp, Telegram) has only be
 ---
 
 ## 3. Phase 2: from a Python service to a Frappe app
+
+> Status 25 Oct 2026: **not started.** Everything in this section is a plan. [FRAPPE_APP_PLAN.md](FRAPPE_APP_PLAN.md) lists the work, what is missing and the effort.
 
 The Marketplace lists **Frappe apps** (a bench app that installs into a site). Frappe Cloud cannot run
 your separate `erp-agents serve` process, SQLite file, Telegram poller or local Ollama. So the

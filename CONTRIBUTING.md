@@ -22,7 +22,8 @@ Live checks against a real ERPNext (`python -m tools.e2e.run_live`) are optional
 4. **No secrets, no personal data** in code, tests, docs or logs. Use `agent@example.com`-style placeholders. Test data is fictional.
 5. **AI agents are fenced, not trusted.** An agent may use only the tools in `toolkit.py` (the same ones the MCP server publishes); no tool orders, approves, pays or changes a setting; what a tool returns carries no customer or staff personal data (`tests/test_toolkit.py` checks this); every number an agent writes is checked against the tools' results; and the deterministic result is always the fallback. See [docs/AGENTS.md](docs/AGENTS.md) and [docs/PRIVACY.md](docs/PRIVACY.md).
 6. **User-facing text** is plain English written for a small-business owner, built in one place (the message modules), not inside routes.
-7. Say honestly in the pull request what you tested and what you could not.
+7. **Run the security checks** before you push: `python -m bandit -r src -q` must report no issue (a justified exception is a `# reason  # nosec Bxxx` comment on that line) and `python -m pip_audit` must report no known vulnerability. A security fix comes with a regression test ([docs/DEVELOPING.md](docs/DEVELOPING.md)).
+8. Say honestly in the pull request what you tested and what you could not.
 
 ## Pull requests
 

@@ -1,5 +1,7 @@
 # End-to-end test results
 
+> This is the record of **one** live run, on 22 Oct 2026, and the totals below are that run's. The code has changed since and the live suite has not been re-run: treat the table as history, not as the current state. Current automated result (no live system involved): 1,127 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026.
+
 Run: 2026-10-22 17:15, live ERPNext (company Test Trading Co); the agent ran in-process with an in-memory database and a fake WhatsApp transport (nothing was sent to Meta or your phone). ERPNext was only read, except one Draft Purchase Order created by PO-05 and deleted afterwards.
 
 Totals: **BLOCKED 8**, **FAIL 1**, **NOT RUN 8**, **PASS 87**.

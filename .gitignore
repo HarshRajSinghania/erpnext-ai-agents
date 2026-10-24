@@ -9,6 +9,10 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+*.lock
+*.before-schema-*
+*.before-restore-*
+*.restore-tmp
 *.log
 tools/testdata/manifest.jsonl
 tools/testdata/days_state.json

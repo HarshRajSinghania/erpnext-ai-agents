@@ -568,7 +568,7 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
     mcp_cfg = ctx.config.get("mcp") or {}
     if mcp_cfg.get("http"):
         from starlette.routing import Route
-        from ..mcp_server import http_endpoint
+        from ..mcp_server import http_endpoint, remote_policy_problem, remote_warning
 
         def who_is_calling(scope: dict) -> Optional[Actor]:
             try:
@@ -576,7 +576,18 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
             except HTTPException:
                 return None
 
-        endpoint, sub_app = http_endpoint(ctx.toolkit, who_is_calling, mcp_cfg.get("allowed_hosts") or None)
+        problem = remote_policy_problem(mcp_cfg)
+        if problem:
+            raise ValueError(problem)
+        warning = remote_warning(mcp_cfg)
+        if warning:
+            log.warning(warning)
+        remote_ok = bool(mcp_cfg.get("remote"))
+
+        def reachable(scope: dict) -> bool:                 # private by default: the server machine only, never through a tunnel or proxy
+            return remote_ok or is_local_request(Request(scope))
+
+        endpoint, sub_app = http_endpoint(ctx.toolkit, who_is_calling, mcp_cfg.get("allowed_hosts") or None, mcp_cfg.get("allowed_origins") or None, reachable)
         api.router.routes.append(Route("/mcp", endpoint=endpoint))
         mcp_apps.append(sub_app)
 
