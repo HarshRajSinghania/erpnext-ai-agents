@@ -23,7 +23,7 @@ The standalone service stays useful on its own (it is how the live tests were do
 
 The standalone code is a shared **core** and switchable **packs** (`src/erp_agents/core`, `src/erp_agents/packs/<name>`). The port keeps that split; it changes what is underneath.
 
-**Decision for the owner: one app or several.**
+**Decided (25 Oct 2026): one app, one Frappe module per pack (option A below).** The comparison is kept for the record.
 
 | | A. One Frappe app, one Frappe *module* per pack (recommended first) | B. A core app plus one app per pack (`required_apps`) |
 |---|---|---|
@@ -32,7 +32,7 @@ The standalone code is a shared **core** and switchable **packs** (`src/erp_agen
 | Switching a pack | a row in the settings; the pack's screens and methods answer "switched off" | install or uninstall the pack's app |
 | Cost | the empty `sales` and `finance` skeletons are not shipped until they have code | more repositories, more CI, more reviews |
 
-Start with A. Because core and packs are already separate packages that never import each other, moving to B later is a packaging change, not a rewrite.
+The owner chose A. Because core and packs are already separate packages that never import each other, moving to B later is a packaging change, not a rewrite.
 
 **What the manifest becomes.** A pack's `manifest.yaml` stays the single declaration; a sync step on install and migrate (`after_install`, `after_migrate`) reads it and keeps the Frappe side in line.
 
@@ -133,7 +133,7 @@ One experienced Frappe developer who knows this code, in working weeks. The rang
 
 | # | Work package | Effort | Done when |
 |---|---|---|---|
-| 0 | Decisions: app name (unique on the Marketplace), repository, publisher account, target Frappe and ERPNext versions, one app or several (section 2), whether the standalone service is kept | 2-3 days | written down |
+| 0 | Decisions: app name (unique on the Marketplace), repository, publisher account, target Frappe and ERPNext versions, whether the standalone service is kept (one app with a module per pack is already decided) | 2-3 days | written down |
 | 1 | Storage interface and repository clean-up in the standalone service; in-memory state moved out; threads behind a job interface; ERP client interface made pack-neutral | 2-3 weeks | the whole suite passes on an in-memory fake storage as well as SQLite |
 | 2 | Frappe app skeleton: package, `hooks.py`, Agent Settings with the Pack table and Password fields, roles, the manifest sync, install hooks and custom fields, a bench in a dev container | 2 weeks | the app installs on a local bench and uninstalls cleanly; a pack can be switched off |
 | 3 | `FrappeERPClient`: stock, usage history, vendor orders and quotations, taxes, document creation as the signed-in user | 2-3 weeks | the existing ERP-client tests pass against a bench site with test data |
@@ -166,7 +166,7 @@ One experienced Frappe developer who knows this code, in working weeks. The rang
 
 ## 12. First steps, in order
 
-1. The owner decides package 0 (name, repository, versions, one app or several).
+1. The owner decides the rest of package 0 (name, repository, versions); one app with a module per pack is decided.
 2. Do package 1 in this repository; it improves the standalone service whether or not the port happens.
 3. Do the spike (one DocType, one scheduled job, one approval round trip on a local bench) and replace the estimates above with measured ones.
 4. Only then commit to packages 2 to 9.
