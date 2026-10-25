@@ -23,6 +23,13 @@ def process_inbound(event: InboundEvent, router: ApprovalRouter, service: Approv
     if event.text and not event.approval_id and channel.handle_command(event, recipient is not None):
         return None
     if recipient is None:
+        if event.text and not event.approval_id:
+            for handler in service.unknown_sender_handlers:
+                try:
+                    if handler(event, channel):
+                        return None
+                except Exception:  # noqa: BLE001 - a pack's handler must never break the webhook
+                    log.exception("a handler of messages from unregistered senders failed")
         log.warning("ignored %s action from unknown sender %s", untrusted(event.channel, 20), untrusted(event.sender, 40))
         channel.acknowledge(event, "You are not registered to answer these requests.")
         return None

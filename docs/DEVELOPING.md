@@ -103,7 +103,8 @@ These are the checks a pack cannot opt out of, because they live in the core and
     be in the tools' results) and the job's own rules, and has a deterministic fallback that is shown instead when it fails. The part of an answer that decides
     something (the verdict, the table, the order of items) is computed by the program; the model words and comments.
 
-15. **A pack depends only on the core.** It declares its tools, approvals, settings and ERPNext roles in its manifest, keeps its tests in its own folder, and never imports another pack. The core never imports a pack. See "How to add a pack" below.
+15. **An ERP read that a connection may not offer is optional.** The follow-up reads (receipts, open sales orders, supplier contacts, item alternatives, stock counts, stock values, e-mail through the ERP) are a separate protocol, `FollowUpERP` in `core/erp/base.py`, called through `getattr`; a feature whose read is missing says so instead of guessing, and an older or smaller ERP client keeps working.
+16. **A pack depends only on the core.** It declares its tools, approvals, settings and ERPNext roles in its manifest, keeps its tests in its own folder, and never imports another pack. The core never imports a pack. See "How to add a pack" below.
 
 ## Audit (21 Oct 2026): where the rules are not met yet
 

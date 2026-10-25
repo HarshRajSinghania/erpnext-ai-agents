@@ -89,6 +89,14 @@ class ProcurementAgent:
     def today(self) -> date:
         return self.clock().astimezone(ZoneInfo(self.settings.system().timezone)).date()
 
+    def _cfg_for(self, payload: dict[str, Any]) -> Any:
+        """The procurement settings for one work order. An order that comes from a quote round (`use_quotes`) is compared on the prices the vendors quoted, even when the
+        owner does not read quotations otherwise."""
+        cfg = self.settings.procurement()
+        if payload.get("use_quotes") and cfg.use_quotations == "off":
+            cfg = cfg.model_copy(update={"use_quotations": "prefer"})
+        return cfg
+
     def _offers(self, code: str, cfg: Any) -> list[Any]:
         """The item's vendors and what the ERP knows about them: past orders, and (when the owner chose to) their valid supplier quotations."""
         since = self.today() - timedelta(days=cfg.history_days)
@@ -139,7 +147,7 @@ class ProcurementAgent:
         if self.proposals.open_for_item(code):
             return {**base, "action": "skipped:awaiting_answer"}
 
-        cfg = self.settings.procurement()
+        cfg = self._cfg_for(p)
         qty = p.get("suggested_qty") or cfg.fallback_qty
         moq = self._moq(code)
         if qty and moq and float(qty) < moq:                 # ERPNext refuses an order below the item's minimum order quantity
@@ -155,6 +163,9 @@ class ProcurementAgent:
                     fallback_lead_days=float(p.get("lead_time_days") or 7), uom=p.get("uom", "units"))
         ranking = rank_vendors(offers, need, cfg, self._tax_setups(offers, code, cfg))
         best = ranking.best
+        chosen = next((v for v in ranking.eligible if v.supplier == p.get("prefer_supplier")), None) if p.get("prefer_supplier") else None
+        if chosen is not None:                                # the vendor a person picked (from a quote comparison) comes first; Change vendor still works
+            best = chosen
         if best is None:
             problem = ("Your settings compare only vendors that have a valid supplier quotation for this item, and none of them has one. "
                        "Ask your suppliers to quote (a Request for Quotation in your ERP), or change 'Prices from supplier quotations' in the procurement settings."
@@ -282,7 +293,7 @@ class ProcurementAgent:
         if has_buttons and not short:
             return None
         wo = (self.workorders.get(prop.work_order_id) or {"payload": {}})["payload"]
-        cfg = self.settings.procurement()
+        cfg = self._cfg_for(wo)
         uom = wo.get("uom", "units")
         qty = float(moq) if short else float(prop.qty or 0)
         offers = self._offers(prop.item_code, cfg)
@@ -312,7 +323,7 @@ class ProcurementAgent:
         if prop is None or prop.status != "awaiting" or record.kind not in (KIND_PO, KIND_PR):
             return self._refused(record, "This request can no longer be changed.")
         wo = (self.workorders.get(prop.work_order_id) or {"payload": {}})["payload"]
-        cfg = self.settings.procurement()
+        cfg = self._cfg_for(wo)
         who = f"{actor.id} via {channel}"
         if action == "change_qty":
             return self._change_qty(record, prop, wo, cfg, params, who)
@@ -513,7 +524,7 @@ class ProcurementAgent:
         if problem:
             return self._refused(record, problem)
         wo = (self.workorders.get(prop.work_order_id) or {"payload": {}})["payload"]
-        cfg = self.settings.procurement()
+        cfg = self._cfg_for(wo)
         who = f"{actor.id} via {channel}"
         if action == "change_qty":
             return self._update_order_qty(record, prop, wo, actor, channel, params, cfg)

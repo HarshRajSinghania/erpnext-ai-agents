@@ -12,6 +12,10 @@ from typing import Any
 from erp_agents.core.packs import Pack, load_manifest
 
 from .agents.tasks import StockAgentTasks
+from .followup.messages import KIND_CHASE, KIND_QUOTE_REQUEST, KIND_QUOTES, KIND_RECEIPT
+from .followup.service import FollowUp, StockInsight
+from .inventory.counts import KIND_COUNT_PLAN, KIND_COUNT_VARIANCE
+from .inventory.slow_stock import KIND_SLOW
 from .assistant.chat import ChatService
 from .assistant.conversation import Conversation
 from .assistant.service import AssistantService
@@ -27,9 +31,9 @@ HERE = Path(__file__).resolve().parent
 MANIFEST = load_manifest(HERE / "manifest.yaml")
 NAME = MANIFEST.name
 # kinds of approval request that are information only: nobody is reminded about them
-NO_REMINDER_KINDS = ("inventory.alert", "procurement.order")
+NO_REMINDER_KINDS = ("inventory.alert", "procurement.order", KIND_SLOW, KIND_COUNT_PLAN, KIND_COUNT_VARIANCE)
 # kinds whose WhatsApp message carries its own buttons: sent as plain messages, never with the default template (its buttons say Create order / Remind me / Reject)
-WHATSAPP_PLAIN_KINDS = ("procurement.order",)
+WHATSAPP_PLAIN_KINDS = ("procurement.order", KIND_CHASE, KIND_RECEIPT, KIND_QUOTE_REQUEST, KIND_QUOTES, KIND_SLOW, KIND_COUNT_PLAN, KIND_COUNT_VARIANCE)
 
 
 class StockProcurementPack(Pack):
@@ -37,7 +41,7 @@ class StockProcurementPack(Pack):
 
     def setup(self, app: Any) -> None:
         cfg = app.config
-        attach_settings(app.settings, cfg.get("policy"), cfg.get("procurement"), cfg.get("calendar"))
+        attach_settings(app.settings, cfg.get("policy"), cfg.get("procurement"), cfg.get("calendar"), cfg.get("followup"))
         ensure_schema(app.db)
         alerts = AlertRepo(app.db, app.clock)
         inventory = InventoryAgent(app.erp, app.settings, alerts, app.approvals, app.workorders, app.db, app.clock)
@@ -48,6 +52,10 @@ class StockProcurementPack(Pack):
         assistant = AssistantService(app.db, app.settings, app.approvals, alerts, proposals, app.clock)
         chat = ChatService(app.erp, inventory, procurement, proposals, app.approvals, app.settings, app.db, app.clock)
         app.services.update(alerts=alerts, inventory=inventory, proposals=proposals, procurement=procurement, assistant=assistant, chat=chat)
+        app.services.update(followup=FollowUp(app), stock_insight=StockInsight(app))
+        app.reschedule_scopes = (*(getattr(app, "reschedule_scopes", None) or ()), "followup")     # changing the follow-up times takes effect without a restart
+        inventory.extra_sections.append(app.services["stock_insight"].substitutes.section)       # an approved alternative, when an item is short and cannot come in time
+        app.approvals.unknown_sender_handlers.append(app.services["followup"].messenger.take_reply)  # a vendor answering on WhatsApp
         app.conversation = Conversation(app.approvals, assistant, chat, app.router, synchronous=bool((cfg.get("conversation") or {}).get("synchronous")))
 
         app.approvals.no_reminder_kinds.update(NO_REMINDER_KINDS)

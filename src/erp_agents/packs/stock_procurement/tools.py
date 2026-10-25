@@ -43,6 +43,23 @@ TOOLS: tuple[ToolSpec, ...] = (
                                       "It orders NOTHING by itself. Use it only when a person has asked for an order.",
              {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity; leave out to use the suggested quantity"},
               "reason": {"type": "string", "maxLength": MAX_TEXT_ARG, "description": "One sentence: why this order, for the approver"}}, ("item_code", "reason"), "approver", PREPARE),
+    ToolSpec("late_deliveries", "Open purchase orders that are past their due date with goods still to come, and how each delay affects stock cover: days of stock on hand without "
+                                "the delivery and with it. Also whether the vendor has been reminded.", {}, (), "viewer", READ),
+    ToolSpec("receipt_mismatches", "Goods receipts that do not match their purchase order (more than ordered, rejected goods, a different price on the receipt or invoice), and "
+                                   "whether the invoice is paid yet.", {"days": {"type": "integer", "description": "How many days back, 1 to 120 (default from the settings)"}}, (), "viewer", READ),
+    ToolSpec("vendor_scorecard", "Vendors ranked on on-time delivery, price drift and quality (rejected goods, receipts not matching the order), with the reason a vendor ranks lower.",
+             {"days": {"type": "integer", "description": "How many days back, 30 to 730 (default from the settings)"}}, (), "viewer", READ),
+    ToolSpec("demand_forecast", "The forecast for ONE item: the reorder point from last year's season and open sales orders, and expected use week by week.",
+             {"item_code": ITEM, "weeks": {"type": "integer", "description": "Weeks ahead, 1 to 13 (default 6)"}}, ("item_code",), "viewer", READ),
+    ToolSpec("slow_stock", "Items that tie up cash: dead stock (no use for a long time) and slow stock (far more than is used), with the value tied up and a suggested action.",
+             {"limit": {"type": "integer", "description": "How many items, at most 25 (default 10)"}}, (), "viewer", READ),
+    ToolSpec("substitutes", "The approved alternatives of ONE item (as listed in the ERP) and how much of each is in stock.", {"item_code": ITEM}, ("item_code",), "viewer", READ),
+    ToolSpec("stock_counts", "Cycle counts: 'plan' = which items to count this week and why; 'variances' = recent count differences with what explains them.",
+             {"kind": {"type": "string", "enum": ["plan", "variances"], "description": "Default plan"}}, (), "viewer", READ),
+    ToolSpec("prepare_quote_request", "Prepare a request to ask two or three vendors for a price on ONE item, for a person to approve. It messages NO vendor by itself: a person "
+                                      "presses Send requests. Use it only when a person has asked for prices or quotes.",
+             {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity to price; leave out to use the suggested quantity"},
+              "reason": {"type": "string", "maxLength": MAX_TEXT_ARG, "description": "One sentence: why, for the approver"}}, ("item_code", "reason"), "approver", PREPARE),
 )
 SPEC = {t.name: t for t in TOOLS}
 
@@ -214,3 +231,105 @@ class StockTools:
                        "reorder_waiting": "A reorder suggestion for this item is already waiting for a person's answer; no request was made.",
                        "manual": "No vendor could be chosen automatically; a person was asked to decide."}.get(status, "")
         return out
+
+
+    # ---------------------------------------------------------------- purchasing follow-up and stock intelligence
+    def _late_deliveries(self, actor: Actor) -> dict[str, Any]:
+        rows = self.app.followup.chaser.describe()
+        return {"late_orders": len(rows), "listed": min(len(rows), 10),
+                "orders": [{"document": r["document"], "vendor": r["vendor"], "due": str(r["due"])[:10] if r["due"] else None, "days_late": r["days_late"],
+                            "reminders_sent": r["reminders_sent"], "chasing": r["chasing"],
+                            "items": [{"item_code": e["item_code"], "still_to_come": _r(e["still"]), "uom": e["uom"], "available": _r(e.get("available")),
+                                       "daily_use": _r(e.get("daily_use")), "cover_days_without_it": _r(e.get("cover_days"), 1), "runs_out_on": e.get("runs_out_on"),
+                                       "cover_days_with_it": _r(e.get("cover_with"), 1)} for e in r["items"][:5]]} for r in rows[:10]]}
+
+    def _receipt_mismatches(self, actor: Actor, days: Optional[int] = None) -> dict[str, Any]:
+        days = max(1, min(int(days), 120)) if days else None
+        res = self.app.followup.receipts.mismatches(days)
+        if not res.get("available"):
+            return {"error": res.get("note", "not available")}
+        return {"days": res["days"], "receipts_checked": res["receipts_checked"], "with_differences": res["with_differences"],
+                "receipts": [{"receipt": r["receipt"], "vendor": r["vendor"], "posted": r["posted"], "draft": r["draft"], "checked": r["checked"],
+                              "differences": [_clip(p["text"], 220) for p in r["problems"]][:4], "before_you_pay": _clip(r["before_you_pay"], 220)} for r in res["receipts"][:10]]}
+
+    def _vendor_scorecard(self, actor: Actor, days: Optional[int] = None) -> dict[str, Any]:
+        from .followup.scorecard import scorecard
+        days = max(30, min(int(days), 730)) if days else None
+        res = scorecard(self.app, days)
+        if not res.get("available"):
+            return {"error": res.get("note", "not available")}
+        return {"days": res["days"], "vendors": [{"rank": v["rank"], "vendor": v["name"], "score": _r(v["score"], 0), "on_time_pct": _r(v["on_time"] * 100, 0) if v["on_time"] is not None else None,
+                                                   "avg_days_late": _r(v["avg_days_late"], 1), "late_now": v["late_now"], "price_drift_pct": _r(v["price_drift_pct"], 1),
+                                                   "rejected": _r(v["rejected"]), "received": _r(v["received"]), "receipt_differences": v["mismatches"],
+                                                   "notes": [_clip(n, 200) for n in v["notes"]][:3], "why_lower": _clip(v["why_lower"], 300)} for v in res["vendors"][:10]]}
+
+    def _demand_forecast(self, actor: Actor, item_code: str, weeks: int = 6) -> dict[str, Any]:
+        from .inventory.forecast import forecast_reorder_point
+        item, err = self._item(item_code)
+        if err:
+            return err
+        weeks = max(1, min(int(weeks or 6), 13))
+        a, _src = self.app.inventory.analyze_one(item.code)
+        policy = self.app.settings.effective_policy(item.code, item.group)
+        today = self.app.inventory.today()
+        usage = self.app.erp.get_consumption([item.code], today - timedelta(days=policy.history_days), today).get(item.code, [])
+        sales = self.app.inventory._sales([(item, policy, {})], today).get(item.code, [])
+        rate = a.usage.planning_rate if a.usage else 0.0
+        f = forecast_reorder_point(usage, sales, policy, today, rate, a.lead_time_days + policy.safety_stock_days, a.position, a.usage.data_days if a.usage else 0, a.windows, weeks)
+        return {"item_code": item.code, "item_name": item.name, "uom": item.uom, "daily_use": _r(rate), "lead_plus_safety_days": _r(f.window_days, 1),
+                "seasonal_index": _r(f.seasonal_index, 2), "seasonal_note": _clip(f.seasonal_note, 140), "expected_use_in_lead_time": _r(f.expected_use),
+                "open_sales_orders_due": _r(f.sales_due), "sales_orders_already_reserved": f.sales_already_reserved, "reorder_point": _r(f.reorder_point),
+                "stock_position": _r(f.position), "time_to_order": f.below, "used_for_alerts": bool(policy.forecast_reorder_point),
+                "weekly": [{"week_starting": w["week_starting"], "expected_use": _r(w["expected_use"]), "seasonal_index": _r(w["seasonal_index"], 2),
+                            "sales_orders_due": _r(w["sales_orders_due"])} for w in f.weekly]}
+
+    def _slow_stock(self, actor: Actor, limit: int = 10) -> dict[str, Any]:
+        limit = max(1, min(int(limit or 10), 25))
+        rep = self.app.stock_insight.slow.report()
+        return {"dead": rep.get("dead", 0), "slow": rep.get("slow", 0), "cash_tied_up": _r(rep.get("cash_tied_up"), 0), "values_known": rep.get("values_known", False),
+                "listed": min(limit, rep.get("listed", 0)),
+                "items": [{"item_code": r["item_code"], "item_name": r["item_name"], "kind": r["kind"], "on_hand": _r(r["on_hand"]), "uom": r["uom"], "daily_use": _r(r["daily_use"]),
+                           "days_since_use": r["days_since_use"], "value": _r(r["value"], 0), "value_tied_up": _r(r["excess_value"], 0), "on_order": _r(r["on_order"]),
+                           "action": r["action"], "advice": _clip(r["advice"], 240)} for r in rep.get("items", [])[:limit]]}
+
+    def _substitutes(self, actor: Actor, item_code: str) -> dict[str, Any]:
+        item, err = self._item(item_code)
+        if err:
+            return err
+        res = self.app.stock_insight.substitutes.find(item.code)
+        return {"item_code": item.code, "item_name": item.name, "note": res.get("note", ""),
+                "alternatives": [{"item_code": r["item_code"], "item_name": r.get("item_name"), "available": _r(r.get("available")), "on_order": _r(r.get("on_order")),
+                                  "cover_days": _r(r.get("cover_days"), 1), "status": r.get("status"), "error": r.get("error")} for r in res["alternatives"]]}
+
+    def _stock_counts(self, actor: Actor, kind: str = "plan") -> dict[str, Any]:
+        counts = self.app.stock_insight.counts
+        if kind == "variances":
+            v = counts.variances()
+            if not v.get("available"):
+                return {"error": v.get("note", "not available")}
+            return {"kind": "variances", "lines": v["lines"], "documents": [{"document": d["document"], "posted": d["posted"],
+                                                                              "lines": [{"item_code": l["item_code"], "warehouse": l["warehouse"], "counted": _r(l["counted"]), "system": _r(l["system"]),
+                                                                                         "difference": _r(l["variance"]), "uom": l["uom"], "why": [_clip(x, 220) for x in l["explanation"]][:4]}
+                                                                                        for l in d["lines"][:8]]} for d in v["documents"][:5]]}
+        p = counts.plan_week()
+        if not p.get("available"):
+            return {"error": p.get("note", "not available")}
+        return {"kind": "plan", "week_of": p["week_of"], "due": p["due"], "classes": p["classes"],
+                "count_these": [{"item_code": r["item_code"], "item_name": r["item_name"], "class": r["class"], "last_counted": r["last_counted"], "due_on": r["due_on"],
+                                 "negative_stock": r["negative_stock"]} for r in p["plan"][:25]]}
+
+    def _prepare_quote_request(self, actor: Actor, item_code: str, reason: str, qty: Optional[float] = None) -> dict[str, Any]:
+        item, err = self._item(item_code)
+        if err:
+            return err
+        if qty is not None and not 0 < qty <= 1_000_000_000:
+            return {"error": "qty must be more than zero"}
+        if qty is None:
+            a, _src = self.app.inventory.analyze_one(item.code)
+            qty = a.suggested_qty or self.app.settings.procurement().fallback_qty
+            if not qty:
+                return {"error": "there is no usage history to size the quantity from: ask the person for a quantity", "note": "nothing was prepared"}
+        res = self.app.followup.quotes.prepare(item.code, float(qty), actor.id, _clip(reason, 300))
+        if res["status"] == "refused":
+            return {"status": "refused", "error": res["error"], "note": "nothing was prepared"}
+        return {k: res.get(k) for k in ("status", "round", "approval_id", "vendors", "cannot_ask", "reply_by", "note") if res.get(k) is not None} | {"item_code": item.code, "qty": _r(qty)}

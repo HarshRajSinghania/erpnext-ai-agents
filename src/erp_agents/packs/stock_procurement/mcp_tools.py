@@ -13,9 +13,11 @@ from pydantic import Field
 from erp_agents.core.mcp_server import PREPARES, READ_ONLY
 from .tools import SPEC
 
-INSTRUCTIONS = ("Stock Assistant for ERPNext: stock position, usage, vendor comparison and purchase-order status for a small business. "
+INSTRUCTIONS = ("Stock Assistant for ERPNext: stock position, usage, vendor comparison and purchase-order status for a small business, plus late deliveries, goods receipt "
+                "checks, a vendor scorecard, demand forecasts, slow and dead stock, approved substitutes and cycle counts. "
                 "'prepare_order_request' only sends an approval request to the people who approve orders; "
-                "use it only when a person asked for an order, and tell them it still needs their answer.")
+                "use it only when a person asked for an order, and tell them it still needs their answer. "
+                "'prepare_quote_request' likewise only sends an approval request: no vendor is messaged until a person presses Send requests.")
 
 
 def _d(tool: str, prop: str) -> Any:
@@ -53,3 +55,36 @@ def register(server: MCPServer, run: Any) -> None:
     async def prepare_order_request(item_code: Annotated[str, _d("prepare_order_request", "item_code")], reason: Annotated[str, _d("prepare_order_request", "reason")],
                                     qty: Annotated[Optional[float], _d("prepare_order_request", "qty")] = None) -> dict[str, Any]:
         return await run("prepare_order_request", {"item_code": item_code, "qty": qty, "reason": reason})
+
+    @server.tool(name="late_deliveries", description=SPEC["late_deliveries"].description, annotations=READ_ONLY)
+    async def late_deliveries() -> dict[str, Any]:
+        return await run("late_deliveries", {})
+
+    @server.tool(name="receipt_mismatches", description=SPEC["receipt_mismatches"].description, annotations=READ_ONLY)
+    async def receipt_mismatches(days: Annotated[Optional[int], _d("receipt_mismatches", "days")] = None) -> dict[str, Any]:
+        return await run("receipt_mismatches", {"days": days})
+
+    @server.tool(name="vendor_scorecard", description=SPEC["vendor_scorecard"].description, annotations=READ_ONLY)
+    async def vendor_scorecard(days: Annotated[Optional[int], _d("vendor_scorecard", "days")] = None) -> dict[str, Any]:
+        return await run("vendor_scorecard", {"days": days})
+
+    @server.tool(name="demand_forecast", description=SPEC["demand_forecast"].description, annotations=READ_ONLY)
+    async def demand_forecast(item_code: Annotated[str, _d("demand_forecast", "item_code")], weeks: Annotated[int, _d("demand_forecast", "weeks")] = 6) -> dict[str, Any]:
+        return await run("demand_forecast", {"item_code": item_code, "weeks": weeks})
+
+    @server.tool(name="slow_stock", description=SPEC["slow_stock"].description, annotations=READ_ONLY)
+    async def slow_stock(limit: Annotated[int, _d("slow_stock", "limit")] = 10) -> dict[str, Any]:
+        return await run("slow_stock", {"limit": limit})
+
+    @server.tool(name="substitutes", description=SPEC["substitutes"].description, annotations=READ_ONLY)
+    async def substitutes(item_code: Annotated[str, _d("substitutes", "item_code")]) -> dict[str, Any]:
+        return await run("substitutes", {"item_code": item_code})
+
+    @server.tool(name="stock_counts", description=SPEC["stock_counts"].description, annotations=READ_ONLY)
+    async def stock_counts(kind: Annotated[Literal["plan", "variances"], _d("stock_counts", "kind")] = "plan") -> dict[str, Any]:
+        return await run("stock_counts", {"kind": kind})
+
+    @server.tool(name="prepare_quote_request", description=SPEC["prepare_quote_request"].description, annotations=PREPARES)
+    async def prepare_quote_request(item_code: Annotated[str, _d("prepare_quote_request", "item_code")], reason: Annotated[str, _d("prepare_quote_request", "reason")],
+                                    qty: Annotated[Optional[float], _d("prepare_quote_request", "qty")] = None) -> dict[str, Any]:
+        return await run("prepare_quote_request", {"item_code": item_code, "qty": qty, "reason": reason})

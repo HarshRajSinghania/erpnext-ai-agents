@@ -10,7 +10,7 @@ It runs on a laptop or a small VPS and needs only open-source software (Python, 
 
 > **Status: beta. Licence: GPL-3.0-or-later.**
 >
-> - 1,201 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
+> - 1,264 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
 > - Checked live against an **ERPNext v16** test instance: reads, vendor comparison with duties and taxes, sign-in through ERPNext, permissions, and creation of a
 >   draft Purchase Order and Material Request ([docs/E2E_TEST_RESULTS.md](docs/E2E_TEST_RESULTS.md) lists every case and what passed, failed or was not run).
 >   Other ERPNext versions have not been tried.
@@ -594,6 +594,44 @@ erp-agents --config config/settings.erpnext.yaml mcp                      # the 
 ```
 
 Design, the tools, the checks, measured speed on a laptop CPU and the limits: [docs/AGENTS.md](docs/AGENTS.md).
+
+## 8g. Purchasing follow-up and stock intelligence
+
+Eight features that close the loop on purchasing and look deeper into stock. Each one is a **tool** in the same registry as the others (so the inventory and purchasing
+agents, any MCP client, the REST API and `erp-agents followup ...` all get the same numbers), and the scheduled ones run on their own as well. Settings: **Settings →
+follow-up** (`followup:` in the settings file); every part can be switched off.
+
+| Feature | What it does | When | Tool |
+|---|---|---|---|
+| **Delivery chasing** | Finds open purchase orders past their due date with goods still to come (after `chase_grace_days`). Tells you how the delay affects stock cover: how long stock on hand lasts without the delivery, and with it. **Send reminder** sends the message shown to the vendor; Ask me later / Stop chasing. At most `chase_max` reminders per order; the chase ends when the goods arrive. | daily (`daily_cron`) | `late_deliveries` |
+| **Goods receipt check** | Compares each goods receipt with its purchase order: more than was still to come, rejected goods, a price on the receipt or invoice `price_tolerance_pct` or more off the order, a receipt without an order. Says whether the invoice is paid yet ("hold the payment" / "ask for a credit note"). A partial delivery is not a mismatch. Changes nothing in ERPNext. | daily | `receipt_mismatches` |
+| **Vendor scorecard** | Ranks vendors on on-time delivery (50 points), price drift (25) and quality: rejected goods and receipts that did not match (25), over `scorecard_days`, with a plain sentence on why a vendor ranks lower ("Ranked below Prime Supplies because it delivered on time 50% of the time against 100%; its prices rose 7.5%"). | on demand | `vendor_scorecard` |
+| **Quote requests** | Picks two or three vendors (listed on the item first, then by record) and prepares a request that shows who would be asked, how, and the message. **Send requests** messages them. Prices come back as **Supplier Quotations in ERPNext** (the vendor enters one from the e-mail, or you type in what they replied: a price is never read out of a message). When all have quoted, or after `quote_reply_days`, you get the comparison; **Prepare order** makes the usual purchase request with that vendor at the quoted price. | the comparison: hourly | `prepare_quote_request` (prepares only) |
+| **Demand forecasting** | Decides the order point from last year's seasonal pattern for the lead-time days and the open sales orders due in them, not only average daily use. Seasonality only ever raises the order point. A sales order is counted once: if your stock settings already subtract "reserved for sales orders", it is not added again. Policy fields `forecast_reorder_point` and `sales_orders_in_forecast`. | every stock check | `demand_forecast` |
+| **Slow and dead stock** | Items that tie up cash: dead (no use for `dead_after_days`) or slow (stock lasts more than `slow_cover_days`), with the value tied up (ERPNext's stock value) and a suggested action: return to vendor (bought within `return_window_days`), cut the open order, discount or clear, stop reordering. | weekly (`weekly_cron`) | `slow_stock` |
+| **Substitute items** | When an item is short and a new order cannot arrive in time, the alert names an **approved** alternative that is in stock: only what ERPNext lists under Item Alternative (two-way records work both ways), never a guess from names. | in each alert | `substitutes` |
+| **Stock count assistant** | Classes items A/B/C by the value of what you use (80 / 15 / 5 %), counts A every `count_a_days`, B every `count_b_days`, C every `count_c_days`, and sends the week's list (negative stock always first). When a count is posted as a Stock Reconciliation, each difference of `variance_notable_pct` or more is explained from what ERPNext shows: a receipt still in draft, stock in transit, a count that is a whole multiple of the system figure (another unit), the same difference at the last count, its size in days of use and its value. | weekly list; differences daily | `stock_counts` |
+
+**How vendors are reached.** Only after a person presses Send, and only to the **e-mail address or mobile number on the supplier's contact in ERPNext** (the
+Supplier's own e-mail and mobile fields, then its linked Contacts, primary first). E-mail goes through **ERPNext's own outgoing e-mail account**
+(`frappe.core.doctype.communication.email.make`), so it is recorded in the timeline of the purchase order or supplier; set up an outgoing Email Account in ERPNext
+first. WhatsApp goes through your WhatsApp channel; set `whatsapp_country_code` (for example 91) for numbers written without one, and, to reach a vendor who has not
+written to you in the last 24 hours, `whatsapp_vendor_template` (an approved template with one body variable). `vendor_channel` chooses e-mail first, WhatsApp first,
+or only one. The address is looked up at the moment of sending and is never stored (only a one-way hash, to recognise a WhatsApp reply), never shown in a request,
+never in a tool result and never sent to a language model. A vendor's WhatsApp reply is kept and passed to the people who answered the request, marked as their
+words; nothing acts on it.
+
+**ERPNext permissions** the service account needs in addition: read Purchase Invoice, Sales Order, Contact, Item Alternative, Stock Reconciliation; create
+Communication (to send e-mail). `erp-agents erp-check-access` lists them.
+
+**Try it:** `erp-agents followup late | receipts | scorecard | quotes | slow | counts | variances`, `erp-agents followup forecast BOLT-M8`,
+`erp-agents followup substitutes OIL-5L`, `erp-agents followup run --dry-run` (the daily pass) and `erp-agents followup weekly --dry-run`. REST: `GET
+/api/v1/followup/late-deliveries | receipts | scorecard | quotes`, `POST /api/v1/followup/quotes` (approver; prepares only), `POST /api/v1/followup/run` (admin; dry run by
+default), `GET /api/v1/inventory/forecast/{item} | slow-stock | substitutes/{item} | counts?kind=plan|variances`.
+
+**Not tried against a live ERPNext yet.** The ERPNext reads and the e-mail call are written from Frappe's documented REST API and tested with a fake HTTP session
+(`tests/test_erpnext_followup.py`). Before relying on it: check that a test e-mail from ERPNext arrives, run `erp-agents followup late` and compare with your open
+purchase orders, and look at one receipt check by hand.
 
 ## 9. Known limitations / next steps
 

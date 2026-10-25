@@ -34,6 +34,7 @@ from ..schema import ensure_schema
 
 log = logging.getLogger(__name__)
 AGENT_NAME = "inventory"
+SALES_HORIZON_DAYS = 120         # open sales orders due within this many days are read for the forecast (a lead time is never longer)
 
 
 @dataclass
@@ -80,10 +81,20 @@ class InventoryAgent:
         self.approvals, self.workorders, self.db, self.clock = approvals, workorders, db, clock
         self.notices = NoticeRepo(db, clock)
         self.order_settled: Optional[Callable[[str, datetime], bool]] = None        # (item, since) -> its order was made and none of it is still on the way; set by bootstrap
+        self.extra_sections: list[Callable[[Analysis], list[Any]]] = []             # more sections for an alert or a reorder request (approved alternatives when short)
         approvals.register_handler(KIND, KindHandler(
             on_decision=self._on_decision, on_expired=self._on_expired, on_cancelled=self._on_cancelled,
         ))
         approvals.register_handler(KIND_ALERT, KindHandler(on_decision=self._on_notice_decision))
+
+    def _with_extras(self, req: Any, a: Analysis) -> Any:
+        """Add what the extra-section providers have to say about this item (they must not fail the alert)."""
+        for provide in self.extra_sections:
+            try:
+                req.sections.extend(provide(a))
+            except Exception:  # noqa: BLE001 - a courtesy section never stops an alert
+                log.exception("an extra section for %s failed", a.item_code)
+        return req
 
     # ================================================================== time
     def today(self) -> date:
@@ -118,13 +129,14 @@ class InventoryAgent:
                 stock, usage = self._load(planned, today)
             except Exception as exc:  # noqa: BLE001
                 return self._failed_run(report, exc, dry_run)
+            sales = self._sales(planned, today)
             for it, policy, sources in planned:
                 st = stock.get(it.code)
                 if st is None:
                     report.errors.append(f"{it.code}: no stock data returned by the ERP")
                     continue
                 try:
-                    analyses.append((analyze_item(it, st, usage.get(it.code, []), policy, today, self._windows(it, today)), policy, sources))
+                    analyses.append((analyze_item(it, st, usage.get(it.code, []), policy, today, self._windows(it, today), sales.get(it.code, ())), policy, sources))
                 except Exception as exc:  # noqa: BLE001 - one bad item must not stop the run
                     log.exception("analysis failed for %s", it.code)
                     report.errors.append(f"{it.code}: analysis failed ({exc})")
@@ -238,7 +250,8 @@ class InventoryAgent:
         stock = stocks.get(item.code)
         if stock is None:
             raise KeyError(f"No stock data for {item_code!r}")
-        return analyze_item(item, stock, usages.get(item.code, []), policy, today, self._windows(item, today)), sources
+        sales = self._sales([(item, policy, sources)], today)
+        return analyze_item(item, stock, usages.get(item.code, []), policy, today, self._windows(item, today), sales.get(item.code, ())), sources
 
     def _windows(self, item: ItemInfo, today: date) -> list[Window]:
         """Calendar events (festivals, promotions) that apply to this item. Empty when the calendar is off or has none."""
@@ -261,6 +274,18 @@ class InventoryAgent:
             usage.update(self.erp.get_consumption(codes, today - timedelta(days=history), today, wh))
         return stock, usage
 
+    def _sales(self, planned: list[tuple[ItemInfo, Policy, dict[str, str]]], today: date) -> dict[str, Any]:
+        """What is still to deliver on open sales orders, per item, for the items whose forecast counts them; nothing when the ERP connection cannot say."""
+        read = getattr(self.erp, "get_open_sales_orders", None)
+        codes = [it.code for it, p, _ in planned if p.forecast_reorder_point and p.sales_orders_in_forecast]
+        if read is None or not codes:
+            return {}
+        try:
+            return read(codes, today + timedelta(days=SALES_HORIZON_DAYS)) or {}
+        except Exception as exc:  # noqa: BLE001 - without them the forecast uses usage and seasonality only, which is what it did before
+            log.warning("could not read the open sales orders (the forecast uses usage only): %s", _short_error(exc))
+            return {}
+
     def overview(self) -> list[dict[str, Any]]:
         """One row per ERP item for the admin screen: live stock/cover plus the thresholds in force.
         Read-only: nothing is stored or sent."""
@@ -279,13 +304,14 @@ class InventoryAgent:
                 rows.append(self._overview_row(it, None, policy, sources))
         if planned:
             stock, usage = self._load(planned, today)
+            sales = self._sales(planned, today)
             for it, policy, sources in planned:
                 st = stock.get(it.code)
                 if st is None:
                     rows.append(self._overview_row(it, None, policy, sources, error="no stock data returned by the ERP"))
                     continue
                 try:
-                    a = analyze_item(it, st, usage.get(it.code, []), policy, today, self._windows(it, today))
+                    a = analyze_item(it, st, usage.get(it.code, []), policy, today, self._windows(it, today), sales.get(it.code, ()))
                 except Exception as exc:  # noqa: BLE001 - one bad item must not hide the others
                     log.exception("overview analysis failed for %s", it.code)
                     rows.append(self._overview_row(it, None, policy, sources, error=f"analysis failed ({exc})"))
@@ -367,7 +393,7 @@ class InventoryAgent:
             self._close(old, "superseded", f"replaced by a newer {SEV_NAMES[a.severity]} alert")
         with self.db.transaction():
             alert = self.alerts.create(a.item_code, a.kind, a.severity, a.to_dict(), "", run_id)
-            req = build_request(a, alert.id, sources)
+            req = self._with_extras(build_request(a, alert.id, sources), a)
             self.db.execute("UPDATE alerts SET reasoning_text=? WHERE id=?", (render_plain(req), alert.id))
             record = self.approvals.submit(req, deliver=False)
             self.alerts.set_approval(alert.id, record.id)
@@ -399,7 +425,7 @@ class InventoryAgent:
                 self.approvals.cancel(old.approval_id, f"replaced by a newer {level.lower()} stock alert")
         with self.db.transaction():
             notice = self.notices.create(a.item_code, level, None)
-            req = build_alert_request(a, notice.id, level, request_follows, int(a.policy.get("snooze_days", 3)))
+            req = self._with_extras(build_alert_request(a, notice.id, level, request_follows, int(a.policy.get("snooze_days", 3))), a)
             record = self.approvals.submit(req, deliver=False)
             self.notices.set_approval(notice.id, record.id)
         self.approvals.deliver(record)                             # network I/O after the database commit

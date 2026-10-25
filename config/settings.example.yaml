@@ -117,3 +117,17 @@ server:
 # packs:
 #   enabled:                     # which packs are switched on; a pack that is not listed uses its own default (stock_procurement: on; sales and finance: off, they are empty)
 #     stock_procurement: true    # false switches the stock and procurement pack off at once: its tools, routes, commands and scheduled work stop answering, its data stays
+# followup:                      # purchasing follow-up and stock intelligence (README section 8g); every part can be switched off
+#   vendor_channel: email_first  # email_first | whatsapp_first | email_only | whatsapp_only: how a reminder or a request for a price reaches a vendor, after a person presses Send
+#   whatsapp_country_code: ""    # put in front of a supplier's mobile number written without one, e.g. "91"
+#   whatsapp_vendor_template: "" # an approved template with one body variable, to reach a vendor who has not written in 24 hours
+#   signature: ""                # e.g. "Purchasing, Test Trading Co"
+#   chase_enabled: true          # ask whether to remind a vendor when an order is late
+#   chase_grace_days: 1
+#   receipt_check_enabled: true  # compare each goods receipt with its order before the invoice is paid
+#   price_tolerance_pct: 1
+#   quote_reply_days: 3
+#   slow_stock_enabled: true     # weekly list of dead and slow stock
+#   counts_enabled: true         # weekly cycle-count list, and explanations of count differences
+#   daily_cron: "30 7 * * *"
+#   weekly_cron: "0 8 * * 1"

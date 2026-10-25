@@ -10,7 +10,7 @@ enabled_by_default: true
 depends_on: []
 
 # The tools an AI client or an agent may use. The core checks the role on every call, however it arrives (REST, MCP, an agent).
-# No tool orders, approves, pays or changes a setting: the only one with an effect only prepares an approval request.
+# No tool orders, approves, pays or changes a setting: the two with an effect only prepare an approval request (an order request, a request to ask vendors for prices).
 tools:
   - {name: stock_overview, role: viewer, effect: read}
   - {name: stock_status, role: viewer, effect: read}
@@ -19,6 +19,14 @@ tools:
   - {name: open_orders, role: viewer, effect: read}
   - {name: waiting_requests, role: viewer, effect: read}
   - {name: prepare_order_request, role: approver, effect: prepare}
+  - {name: late_deliveries, role: viewer, effect: read}
+  - {name: receipt_mismatches, role: viewer, effect: read}
+  - {name: vendor_scorecard, role: viewer, effect: read}
+  - {name: demand_forecast, role: viewer, effect: read}
+  - {name: slow_stock, role: viewer, effect: read}
+  - {name: substitutes, role: viewer, effect: read}
+  - {name: stock_counts, role: viewer, effect: read}
+  - {name: prepare_quote_request, role: approver, effect: prepare}
 
 # ERPNext roles the pack needs, for the service account and for the people who use it. Accounts Manager only because ERPNext lets nothing else read Tax Rules.
 erp_roles: [Purchase User, Stock User, Accounts User, Accounts Manager]
@@ -42,6 +50,13 @@ erp_permissions:
   - [Item Tax Template, read]
   - [Currency Exchange, read]
   - [Company, read]
+  # purchasing follow-up and stock intelligence
+  - [Purchase Invoice, read]
+  - [Sales Order, read]
+  - [Contact, read]
+  - [Item Alternative, read]
+  - [Stock Reconciliation, read]
+  - [Communication, create]
 
 # What a person needs in ERPNext (holding any one is enough): to look at the screens, and to answer requests (approving a purchase order creates one for them).
 erp_look:
@@ -83,12 +98,43 @@ approvals:
     role: approver
     description: Sent after Create order. Change quantity changes it in the same order; Cancel order deletes a draft or cancels a submitted order (after a yes); Change vendor replaces it.
     creates: changes the quantity of, cancels or replaces an order this application created (never one made by hand)
+  - kind: procurement.chase
+    actions: [send, later, dismiss, details]
+    role: approver
+    description: A purchase order is late. Says how the delay affects stock cover; Send reminder sends the shown message to the vendor.
+    creates: a message to the vendor (e-mail through ERPNext, recorded on the order, or WhatsApp) to the address on the supplier's contact in ERPNext
+  - kind: procurement.receipt_check
+    actions: [ack, details]
+    role: approver
+    description: A goods receipt does not match its purchase order (quantity, rejected goods, price), with whether the invoice is paid. Information only.
+  - kind: procurement.quote_request
+    actions: [send, dismiss, details]
+    role: approver
+    description: Ask two or three vendors for a price. Send requests sends the shown message to each.
+    creates: a message to each vendor (e-mail through ERPNext, recorded on the supplier, or WhatsApp) to the address on the supplier's contact in ERPNext
+  - kind: procurement.quotes
+    actions: [approve, dismiss, details]
+    role: approver
+    description: The vendors' quotations compared. Prepare order makes the usual purchase request with the chosen vendor; it orders nothing.
+  - kind: inventory.slow_stock
+    actions: [ack, details]
+    role: approver
+    description: The weekly list of dead and slow stock with the cash tied up and a suggested action. Information only.
+  - kind: inventory.count_plan
+    actions: [ack, details]
+    role: approver
+    description: This week's cycle counts. Information only.
+  - kind: inventory.count_variance
+    actions: [ack, details]
+    role: approver
+    description: The differences a posted stock count found, with what explains them. Information only.
 
 # The settings this pack adds (admin-editable, audited).
 settings:
   - {section: policy, description: "Stock thresholds, lead times, how usage is estimated and what counts as stock, with overrides per item group and per item."}
   - {section: procurement, description: "How vendors are ranked, taxes and quotations, what approving does, vendor note, requisition-first items."}
   - {section: calendar, description: "Known demand events (festivals, promotions) used to adjust days of cover."}
+  - {section: followup, description: "Chasing late deliveries, goods receipt checks, quote requests, the vendor scorecard, slow and dead stock, cycle counts, and how vendors are messaged."}
   - {section: system, description: "Fields added to the system settings: the schedule, alert limits, the stock monitor columns."}
 
 # What an AI agent of this pack may send to a language model (shown in the privacy statement; the tools return no customer or staff personal data).
@@ -98,3 +144,6 @@ sends_to_model:
   - "For the item being discussed: the vendors' names, prices, taxes and duties, delivery times and on-time record."
   - Purchase order and requisition numbers with their vendor, quantities, due dates and status.
   - The text of a question a person typed to the assistant, and the item and quantity of an order request being reviewed.
+  - "Late purchase orders (number, vendor name, due date, quantities still to come) with the stock cover of their items; goods receipt differences (receipt and invoice numbers, quantities, prices, whether the invoice is paid); the vendor scorecard (on-time share, price change, rejected quantities)."
+  - "Demand forecasts (seasonal index, quantities due on open sales orders, totals only, no customer named), slow and dead stock with its value, approved alternative items, and cycle count plans and differences."
+  - "Never a vendor's e-mail address, phone number or contact person, and never a vendor's reply: those go only to the people who answer the requests."

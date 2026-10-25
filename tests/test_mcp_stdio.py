@@ -2,6 +2,7 @@
 import asyncio
 import os
 import sys
+from erp_agents.core.packs import PackRegistry
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,8 @@ def test_a_client_can_list_and_call_the_tools_over_stdio(tmp_path):
             refused = await c.call_tool("prepare_order_request", {"item_code": "BOLT-M8", "reason": "x"})
             return tools, overview, status, refused
     tools, overview, status, refused = run(go())
-    assert tools[0] == "stock_overview" and "prepare_order_request" in tools and len(tools) == 7
+    declared = [d.name for d in PackRegistry.discover().manifests["stock_procurement"].tools]
+    assert tools[0] == "stock_overview" and "prepare_order_request" in tools and sorted(tools) == sorted(declared)       # exactly what the pack declares, nothing more
     assert not overview.is_error and overview.structured_content["items_total"] == 10 and len(overview.structured_content["items"]) <= 3
     assert status.structured_content["item_code"] == "BOLT-M8"
     assert refused.is_error and "not allowed" in refused.content[0].text                                          # the default caller can look, not prepare

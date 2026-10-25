@@ -52,6 +52,9 @@ class ApprovalService:
         self._local = threading.local()                  # per thread: work to do after the reply to a decision (see decide(defer=True))
         self.on_submitted: list[Callable[[ApprovalRecord], None]] = []       # told after a new request has been sent out; must not block (the AI second opinion starts its own thread)
         self.on_decided: list[Callable[[ApprovalRecord], None]] = []         # told after a request was answered and the answer applied: run after the person's reply (see decide(defer=True))
+        # a message from someone who is not a registered person (for example a vendor answering a pack's message): each handler gets (event, channel) and returns
+        # True when it took the message; it must treat the text as untrusted data and never act on it. None take it = the sender is told they are not registered.
+        self.unknown_sender_handlers: list[Callable[[Any, Any], bool]] = []
 
     def register_handler(self, kind: str, handler: KindHandler) -> None:
         self._handlers[kind] = handler

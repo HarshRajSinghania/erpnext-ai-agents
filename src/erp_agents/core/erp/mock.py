@@ -12,7 +12,8 @@ from typing import Callable, Optional, Sequence, Any
 
 from dataclasses import replace
 
-from .base import DailyUsage, ItemInfo, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, StockInfo, TaxSetup, VendorOffer, RequisitionDraft
+from .base import (CountLine, DailyUsage, ItemInfo, MessageResult, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, ReceiptLine, RequisitionDraft, SalesDue, StockInfo,
+                   SupplierContact, TaxSetup, VendorOffer)
 
 HISTORY_DAYS = 480
 
@@ -51,6 +52,15 @@ class MockERP:
         self.fail_purchase_orders = False        # tests: simulate the ERP refusing the write
         self.refuse_update = ''                  # tests: when set, changing an order's quantity is refused with this message
         self.refuse_cancel = ''                  # tests: when set, cancelling or deleting an order is refused with this message
+        # purchasing follow-up and stock intelligence (see FollowUpERP): empty unless a test or the demo fills them
+        self.receipts: list[ReceiptLine] = []
+        self.sales_orders: dict[str, list[SalesDue]] = {}
+        self.contacts: dict[str, SupplierContact] = {}
+        self.alternatives: dict[str, list[str]] = {}
+        self.counts: list[CountLine] = []
+        self.stock_values: dict[str, float] = {}
+        self.sent_emails: list[dict[str, Any]] = []
+        self.refuse_email = ''                   # tests: when set, sending an e-mail fails with this message
         if scenarios:
             self._build_scenarios()
 
@@ -162,10 +172,10 @@ class MockERP:
                 continue
             if item_code and d.get("item_code") != item_code:
                 continue
-            out.append({"doctype": doctype, "name": d["name"], "status": d.get("status", "Draft"), "docstatus": d.get("docstatus", 0), "party": d.get("supplier"), "date": self.today.isoformat() if hasattr(self, "today") and hasattr(self.today, "isoformat") else None,
+            out.append({"doctype": doctype, "name": d["name"], "status": d.get("status", "Draft"), "docstatus": d.get("docstatus", 0), "party": d.get("supplier"), "party_id": d.get("supplier_id") or d.get("supplier"), "date": self.today.isoformat() if hasattr(self, "today") and hasattr(self.today, "isoformat") else None,
                         "due": d["required_by"].isoformat() if d.get("required_by") else None, "created_by": d.get("created_by"), "approved_by": d.get("approved_by", ""),
                         "per_received": d.get("per_received", 0.0), "per_billed": d.get("per_billed", 0.0), "total": None, "currency": None, "kind": "Purchase" if doctype == "Material Request" else None,
-                        "lines": [{"item_code": d.get("item_code"), "item_name": d.get("item_code"), "qty": d.get("qty"), "uom": d.get("uom"), "done_qty": 0.0}]})
+                        "lines": [{"item_code": d.get("item_code"), "item_name": d.get("item_code"), "qty": d.get("qty"), "uom": d.get("uom"), "done_qty": float(d.get("received_qty") or 0.0)}]})
         return out[:limit]
 
     def create_material_request(self, draft: RequisitionDraft, acting: Any = None) -> PurchaseOrderResult:
@@ -198,6 +208,54 @@ class MockERP:
 
     def healthcheck(self) -> bool:
         return self.healthy
+
+    # ------------------------------------------------------------------ FollowUpERP
+    def get_receipt_lines(self, since: date) -> list[ReceiptLine]:
+        return [r for r in self.receipts if r.posting_date is None or r.posting_date >= since]
+
+    def get_open_sales_orders(self, item_codes: Sequence[str], until: date) -> dict[str, list[SalesDue]]:
+        return {c: [s for s in self.sales_orders.get(c, []) if s.qty > 0 and (s.due is None or s.due <= until)] for c in item_codes if self.sales_orders.get(c)}
+
+    def get_supplier_contact(self, supplier: str) -> Optional[SupplierContact]:
+        return self.contacts.get(supplier)
+
+    def get_item_alternatives(self, item_code: str) -> list[str]:
+        return list(self.alternatives.get(item_code, []))
+
+    def get_stock_counts(self, since: date) -> list[CountLine]:
+        return [c for c in self.counts if c.posting_date is None or c.posting_date >= since]
+
+    def get_stock_values(self, item_codes: Sequence[str]) -> dict[str, float]:
+        """The value set by a test or the demo; otherwise on hand x the usual supplier's average price, like a valuation rate."""
+        out = {}
+        for c in item_codes:
+            if c in self.stock_values:
+                out[c] = self.stock_values[c]
+            elif c in self.items:
+                prices = [o.avg_price or o.unit_price for o in self.vendors.get(c, []) if (o.avg_price or o.unit_price)]
+                out[c] = round(max(self.items[c].stock.on_hand, 0.0) * (prices[0] if prices else 0.0), 2)
+        return out
+
+    def last_purchase_dates(self, item_codes: Sequence[str]) -> dict[str, tuple[date, str]]:
+        out: dict[str, tuple[date, str]] = {}
+        for r in self.receipts:
+            if r.item_code in item_codes and r.posting_date and r.submitted and (r.item_code not in out or r.posting_date > out[r.item_code][0]):
+                out[r.item_code] = (r.posting_date, r.supplier)
+        return out
+
+    def send_email(self, recipients: Sequence[str], subject: str, body: str, reference_doctype: str, reference_name: str) -> MessageResult:
+        if self.refuse_email:
+            return MessageResult(ok=False, error=self.refuse_email)
+        ref = f"COMM-MOCK-{len(self.sent_emails) + 1:04d}"
+        self.sent_emails.append({"to": list(recipients), "subject": subject, "body": body, "doctype": reference_doctype, "name": reference_name, "reference": ref})
+        return MessageResult(ok=True, reference=ref)
+
+    def add_open_order(self, name: str, supplier: str, item_code: str, qty: float, due: date, received: float = 0.0, rate: float = 10.0, supplier_name: str = "") -> dict:
+        """A submitted purchase order made in the ERP (not by this application), for the follow-up tests and the demo."""
+        po = {"name": name, "reference": "", "approved_by": "", "created_by": "buyer", "supplier": supplier_name or supplier, "supplier_id": supplier, "item_code": item_code, "qty": qty,
+              "rate": rate, "required_by": due, "docstatus": 1, "status": "To Receive and Bill", "per_received": round(received / qty * 100, 2) if qty else 0.0, "received_qty": received}
+        self.purchase_orders.append(po)
+        return po
 
     # ------------------------------------------------------------------ helpers for tests/demo
     def add_item(

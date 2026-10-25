@@ -71,6 +71,14 @@ class Policy(BaseModel):
     min_history_days: int = Field(30, ge=7, description="Minimum days of data needed before making predictions.")
     seasonal_adjust: bool = Field(True, description="Use last year's same-period demand uplift (needs >1 year of history).")
     seasonal_max_factor: float = Field(2.0, ge=1, le=5, description="Cap on the seasonal uplift applied to forecasts.")
+    forecast_reorder_point: bool = Field(
+        True, description="Also decide when to order from the demand forecast: last year's seasonal pattern for the lead-time days and the open sales orders due in them, "
+                          "not only average daily use. It can only make an order come sooner, never later.",
+    )
+    sales_orders_in_forecast: bool = Field(
+        True, description="Count what is still to deliver on open sales orders due within the lead time as demand. Only used when 'reserved for sales orders' is not "
+                          "already subtracted from available stock (so a sales order is never counted twice).",
+    )
 
     # ---- order suggestion handed to the procurement step -------------------------
     target_cover_days: float = Field(30, gt=0, description="Suggested order brings stock to lead + safety + this many days.")
@@ -264,21 +272,113 @@ class CalendarSettings(BaseModel):
     )
 
 
+# Placeholders the vendor messages may use (see followup/messages.py).
+CHASE_FIELDS = ("vendor", "order", "item", "item_code", "qty", "still", "uom", "due", "days_late", "signature")
+QUOTE_FIELDS = ("vendor", "item", "item_code", "qty", "uom", "reply_by", "reference", "signature")
+
+
+class FollowUpSettings(BaseModel):
+    """Purchasing follow-up (chasing late deliveries, checking goods receipts, asking vendors for prices, the vendor scorecard) and stock intelligence (slow and dead
+    stock, cycle counts). A message to a vendor is only ever sent after a person presses Send; it goes to the e-mail address or mobile number on the supplier's
+    contact in the ERP."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    # ---- how vendors are reached
+    vendor_channel: Literal["email_first", "whatsapp_first", "email_only", "whatsapp_only"] = Field(
+        "email_first", description="How a message to a vendor is sent: by e-mail through your ERP's outgoing mail account, or by WhatsApp to the mobile number on the "
+                                   "supplier's contact. '..._first' falls back to the other when the first is missing or fails.",
+    )
+    whatsapp_country_code: str = Field(
+        "", pattern=r"^[0-9]{0,4}$", description="Country calling code put in front of a supplier's mobile number that is written without one (for example 91). "
+                                                 "Empty = only numbers written with their country code (+91..., 0091...) are used.",
+    )
+    whatsapp_vendor_template: str = Field(
+        "", max_length=100, description="An approved WhatsApp template with one body variable, used when a vendor has not written to you in the last 24 hours (WhatsApp "
+                                        "drops other messages then). Empty = WhatsApp reaches a vendor only inside that window; e-mail has no such limit.",
+    )
+    signature: str = Field("", max_length=200, description="Signed at the end of every message to a vendor, for example 'Purchasing, Test Trading Co'.")
+
+    # ---- chasing late deliveries
+    chase_enabled: bool = Field(True, description="Watch open purchase orders and ask you whether to remind the vendor when a delivery is late.")
+    chase_grace_days: int = Field(1, ge=0, le=30, description="Days after the due date before an order counts as late.")
+    chase_every_days: int = Field(3, ge=1, le=30, description="Ask again about the same late order after this many days.")
+    chase_max: int = Field(3, ge=1, le=10, description="Most reminders sent to a vendor about one order; after that only you are told.")
+    chase_message: str = Field(
+        "Dear {vendor}, our purchase order {order} for {qty} {uom} of {item} was due on {due} and has not arrived in full ({still} {uom} still to come, "
+        "{days_late} days late). Please reply with the date you will deliver. {signature}",
+        max_length=800, description="The reminder sent to the vendor. You can use: " + ", ".join("{" + k + "}" for k in CHASE_FIELDS) + ".",
+    )
+
+    # ---- checking goods receipts
+    receipt_check_enabled: bool = Field(True, description="Compare each goods receipt with its purchase order and tell you about differences before the invoice is paid.")
+    receipt_lookback_days: int = Field(14, ge=1, le=120, description="Check goods receipts posted in the last this-many days.")
+    price_tolerance_pct: float = Field(1, ge=0, le=50, description="A price on the receipt or invoice this % or more away from the order is a mismatch.")
+    qty_tolerance_pct: float = Field(0, ge=0, le=50, description="Receiving this % more than was still to come on the order is a mismatch (0 = any extra).")
+
+    # ---- asking vendors for prices
+    quote_max_vendors: int = Field(3, ge=2, le=5, description="How many vendors are asked for a price at once.")
+    quote_reply_days: int = Field(3, ge=1, le=30, description="Days the vendors have to reply before the comparison is sent to you.")
+    quote_message: str = Field(
+        "Dear {vendor}, please send your best price and delivery time for {qty} {uom} of {item} ({item_code}) by {reply_by}. Our reference: {reference}. {signature}",
+        max_length=800, description="The request for a price. You can use: " + ", ".join("{" + k + "}" for k in QUOTE_FIELDS) + ".",
+    )
+
+    # ---- vendor scorecard
+    scorecard_days: int = Field(180, ge=30, le=730, description="How far back the vendor scorecard looks (orders, receipts and prices).")
+
+    # ---- slow and dead stock
+    slow_stock_enabled: bool = Field(True, description="Once a week, list items that tie up cash: no use for a long time, or far more stock than you use.")
+    slow_cover_days: int = Field(180, ge=30, le=1100, description="Stock that lasts longer than this many days at the current use is slow.")
+    dead_after_days: int = Field(120, ge=30, le=1100, description="An item with stock and no use for this many days is dead stock.")
+    return_window_days: int = Field(60, ge=0, le=365, description="Suggest returning to the vendor when the stock was bought within this many days.")
+    slow_min_value: float = Field(0, ge=0, description="Leave out items whose stock is worth less than this (company currency).")
+
+    # ---- cycle counts
+    counts_enabled: bool = Field(True, description="Plan cycle counts each week and explain the differences found when a count is posted.")
+    count_a_days: int = Field(30, ge=7, le=365, description="Count A items (the 80% of usage value) this often.")
+    count_b_days: int = Field(90, ge=7, le=730, description="Count B items (the next 15%) this often.")
+    count_c_days: int = Field(180, ge=7, le=1100, description="Count C items (the rest) this often.")
+    counts_per_week: int = Field(15, ge=1, le=500, description="Most items on one week's count list.")
+    variance_notable_pct: float = Field(2, ge=0, le=100, description="A count that differs from the system by this % or more (and by at least one unit) is explained to you.")
+
+    # ---- when it runs
+    daily_cron: str = Field("30 7 * * *", description="When late deliveries, goods receipts and new stock counts are checked (cron, your time zone).")
+    weekly_cron: str = Field("0 8 * * 1", description="When the slow-stock list and the week's count list are sent (cron, your time zone).")
+
+    @model_validator(mode="after")
+    def _check(self) -> "FollowUpSettings":
+        for name, fields in (("chase_message", CHASE_FIELDS), ("quote_message", QUOTE_FIELDS)):
+            try:
+                getattr(self, name).format_map({k: "x" for k in fields})
+            except (KeyError, IndexError, ValueError) as exc:
+                raise ValueError(f"{name} can only use {', '.join('{' + k + '}' for k in fields)} ({exc!r} is not allowed)") from exc
+        for name in ("daily_cron", "weekly_cron"):
+            if len(getattr(self, name).split()) != 5:
+                raise ValueError(f"{name} must have 5 fields, e.g. '30 7 * * *'")
+        if not (self.count_a_days <= self.count_b_days <= self.count_c_days):
+            raise ValueError("count_a_days <= count_b_days <= count_c_days: A items are counted most often")
+        return self
+
+
 RETIRED_PROCUREMENT_FIELDS = ("tax_rules", "home_country", "unknown_origin", "po_tax_template_import", "po_tax_template_domestic")
 
 
-def attach(store: Any, base_policy: Optional[dict] = None, base_procurement: Optional[dict] = None, base_calendar: Optional[dict] = None) -> Any:
+def attach(store: Any, base_policy: Optional[dict] = None, base_procurement: Optional[dict] = None, base_calendar: Optional[dict] = None,
+           base_followup: Optional[dict] = None) -> Any:
     """Register this pack's settings with the core's store, and give the store the pack's convenience accessors (`effective_policy`, `procurement()`, `update_procurement()`...),
     so the rest of the pack reads `settings.procurement()` as it always did. The base values are validated at once: a bad settings file fails at start-up."""
     store.extend_system(StockSystemSettings)
     store.register_scoped("policy", Policy, base_policy or {})
     store.register_section("procurement", ProcurementSettings, base_procurement or {}, retired=RETIRED_PROCUREMENT_FIELDS)
     store.register_section("calendar", CalendarSettings, base_calendar or {})
+    store.register_section("followup", FollowUpSettings, base_followup or {})
     store.effective_policy = lambda item_code=None, item_group=None: store.effective_scoped("policy", item_code, item_group)
     store.policy_with_sources = lambda item_code=None, item_group=None: store.scoped_with_sources("policy", item_code, item_group)
     store.update_policy = lambda actor, scope_type, scope_key, set_values=None, clear=None: store.update_scoped(actor, "policy", scope_type, scope_key, set_values, clear)
     store.reset_scope = lambda actor, scope_type, scope_key: store.reset_scoped(actor, "policy", scope_type, scope_key)
     store.procurement = lambda: store.section("procurement")
     store.calendar = lambda: store.section("calendar")
+    store.followup = lambda: store.section("followup")
     store.update_procurement = lambda actor, set_values, clear=None: store.update_section(actor, "procurement", set_values, clear)
     return store

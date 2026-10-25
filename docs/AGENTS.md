@@ -23,7 +23,7 @@ The Stock Assistant has always worked from rules: the same data gives the same a
 
 ## The rules that do not bend
 
-1. **No tool orders, approves, pays or changes a setting.** The only action is `prepare_order_request`, which sends the usual approval request. A person still answers it.
+1. **No tool orders, approves, pays or changes a setting.** The only actions are `prepare_order_request` and `prepare_quote_request`, which send the usual approval request. A person still answers it, and no vendor is messaged until a person presses Send. The quote tool is offered to an agent only when the person asked for prices or quotes in so many words, for an item they named, once per question (the same gate as the order tool).
 2. **Numbers come from tools, never from the model.** Every number and item code in an agent's words is checked against what the tools returned that task, plus the numbers in the person's own question. A faithful rounding (12 for 12.3) passes; an invented figure, or a guessing word ("probably"), does not. Only the *results of calls that succeeded* count: a tool call's arguments never do, so a number a model types into a call that was rejected cannot be quoted afterwards. This is safe for the successful calls because the tools echo every argument that is a fact in their result (`usage_history` returns `weeks`, `vendor_options` and `prepare_order_request` return `qty`, `stock_overview` reports its `limit` as `listed`); a test pins each of those, so a tool that stopped echoing would be noticed.
 3. **A rejected answer never reaches a person.** The model gets one chance to fix exactly what was wrong; after that the plain-rules result is used, and the record says so.
 4. **The order tool is fenced twice.** It is offered only to someone who may approve orders in ERPNext *and* only when they asked for an order in so many words ("create a purchase order for BOLT-M8 for 500"); and it may be used only for the item and quantity they named, once per question. The reason approvers read is the person's own sentence, never the model's.
@@ -43,6 +43,14 @@ All seven are defined in the stock pack ([`src/erp_agents/packs/stock_procuremen
 | `open_orders(item_code?, kind?)` | look | Open or draft purchase orders / requisitions with ordered, received and still-to-come quantity |
 | `waiting_requests(item_code?)` | look | Requests waiting for a person's answer |
 | `prepare_order_request(item_code, reason, qty?)` | approvers | Sends the usual request (Create order / Change quantity / Change vendor). Orders nothing |
+| `late_deliveries()` | look | Open purchase orders past due, with days of stock cover without the delivery and with it, and the reminders sent |
+| `receipt_mismatches(days?)` | look | Goods receipts that do not match their order (quantity, rejected goods, price on receipt or invoice) and whether the invoice is paid |
+| `vendor_scorecard(days?)` | look | Vendors ranked on on-time delivery, price drift and quality, with why a vendor ranks lower |
+| `demand_forecast(item_code, weeks?)` | look | The order point from last year's season and open sales orders, and expected use week by week |
+| `slow_stock(limit?)` | look | Dead and slow stock, the cash tied up and a suggested action |
+| `substitutes(item_code)` | look | The approved alternatives listed in ERPNext and their stock |
+| `stock_counts(kind?)` | look | This week's count list, or recent count differences with what explains them |
+| `prepare_quote_request(item_code, reason, qty?)` | approvers | Prepares a request to ask two or three vendors for a price. Messages no vendor: a person presses Send requests |
 
 Every call is checked against the caller's ERPNext-derived level, and logged (who, how, which tool, which arguments, whether it worked) in `tool_calls`. Results are capped at 7,000 characters. Numbers sent as text by a small model (`"500"`, `"1,200"`) are accepted; a wrong value is an error the model can read and correct.
 

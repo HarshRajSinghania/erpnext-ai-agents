@@ -85,7 +85,8 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
     api = FastAPI(title="ERP Agents", version="0.1.0", lifespan=run_lifespans,
                   docs_url="/docs" if docs else None, redoc_url="/redoc" if docs else None, openapi_url="/openapi.json" if docs else None)
     if on_system_change:
-        ctx.settings.on_change(lambda scope, key: on_system_change() if scope in ("system", "agents") else None)
+        # the system and agent settings reschedule, and so does any section a pack names in `reschedule_scopes` (the stock pack: its follow-up times)
+        ctx.settings.on_change(lambda scope, key: on_system_change() if scope in ("system", "agents", *(getattr(ctx, "reschedule_scopes", None) or ())) else None)
 
     # ------------------------------------------------------------------ auth
     def bearer(request: Request) -> str:

@@ -34,7 +34,7 @@ def pack_off(app):
 def test_the_stock_pack_is_on_by_default_and_its_parts_are_there(make_app, clock):
     app = build(make_app, clock)
     assert app.packs.enabled_names() == [STOCK] and STOCK in app.packs.loaded
-    assert sorted(app.services) == ["alerts", "assistant", "chat", "inventory", "procurement", "proposals"]
+    assert sorted(app.services) == ["alerts", "assistant", "chat", "followup", "inventory", "procurement", "proposals", "stock_insight"]
     assert app.toolkit.registered_for(STOCK) == {t.name: (t.role, t.effect) for t in app.packs.manifests[STOCK].tools}
 
 
@@ -203,7 +203,7 @@ def test_a_pack_whose_tools_do_not_match_its_manifest_stops_the_application(make
     real = stock.StockTools.definitions
 
     def one_too_few(self):
-        return real(self)[:-1]
+        return [d for d in real(self) if d.spec.name != "prepare_order_request"]
     monkeypatch.setattr(stock.StockTools, "definitions", one_too_few)
     with pytest.raises(PackError, match="declared but not registered: prepare_order_request"):
         build(make_app, clock)

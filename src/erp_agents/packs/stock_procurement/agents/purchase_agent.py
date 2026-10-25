@@ -17,11 +17,13 @@ from erp_agents.core.agents.runtime import FINAL_REQUEST, AgentJob, Evidence, To
 
 AGENT = "purchasing"
 REVIEW_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests")
-ASK_PURCHASING_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests")
-ASK_INVENTORY_TOOLS = ("stock_overview", "stock_status", "usage_history", "open_orders", "waiting_requests")
+ASK_PURCHASING_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "late_deliveries", "receipt_mismatches", "vendor_scorecard")
+ASK_INVENTORY_TOOLS = ("stock_overview", "stock_status", "usage_history", "open_orders", "waiting_requests", "demand_forecast", "slow_stock", "substitutes", "stock_counts")
 PREPARE = "prepare_order_request"
+QUOTE = "prepare_quote_request"
+QUOTE_ASK = re.compile(r"\b(rfq|request for quotation|(ask|get|request|send|collect)\b.{0,40}\b(quotes?|quotations?|prices?|offers?))\b", re.I)
 VERDICT_WORDS = {"agree": "Looks reasonable", "check_first": "Worth checking first"}
-PURCHASING_WORDS = re.compile(r"\b(order|orders|po|pos|purchase|purchases|requisition|requisitions|vendor|vendors|supplier|suppliers|buy|quote|quotes|quotation|price|prices|cheapest|invoice|receipt)\b", re.I)
+PURCHASING_WORDS = re.compile(r"\b(order|orders|po|pos|purchase|purchases|requisition|requisitions|vendor|vendors|supplier|suppliers|buy|quote|quotes|quotation|price|prices|cheapest|invoice|receipt|receipts|late|delivery|deliveries|scorecard|rfq)\b", re.I)
 
 REVIEW_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["points"],
@@ -127,14 +129,24 @@ def asked_for_order(question: str) -> bool:
     return wants_order(question.lower())                  # the chat's own test of "the person asked for an order", which reads lower-case text
 
 
+def asked_for_quotes(question: str) -> bool:
+    """The person asked, in so many words, for vendors to be asked for prices ("get quotes for BOLT-M8", "ask the vendors for prices on 500 bolts")."""
+    return bool(QUOTE_ASK.search(question))
+
+
 def prepare_gate(question: str, can_prepare: bool) -> Callable[[str, dict[str, Any], Evidence], Optional[str]]:
     """The only tool that does anything is allowed when the person asked for an order in so many words, and only for what they named."""
     def gate(name: str, args: dict[str, Any], ev: Evidence) -> Optional[str]:
-        if name != PREPARE:
+        if name not in (PREPARE, QUOTE):
             return None
-        if not can_prepare or not asked_for_order(question):
+        if name == QUOTE:
+            if not can_prepare or not asked_for_quotes(question):
+                return "no vendor may be asked for a price: the person did not ask for that"
+            if any(r.name == QUOTE for r in ev.runs):
+                return "only one quote request can be prepared per question"
+        elif not can_prepare or not asked_for_order(question):
             return "no order request may be prepared: the person did not ask for one"
-        if any(r.name == PREPARE for r in ev.runs):
+        elif any(r.name == PREPARE for r in ev.runs):
             return "only one order request can be prepared per question"
         code = str(args.get("item_code") or "")
         low = question.lower()
@@ -154,7 +166,7 @@ def prepare_gate(question: str, can_prepare: bool) -> Callable[[str, dict[str, A
 
 def prepare_rewrite(question: str, asked_by: str) -> Callable[[str, dict[str, Any]], dict[str, Any]]:
     def rewrite(name: str, args: dict[str, Any]) -> dict[str, Any]:
-        if name == PREPARE:
+        if name in (PREPARE, QUOTE):
             return {**args, "reason": f'{asked_by} asked for this in chat: "{question[:160]}"'}
         return args
     return rewrite
@@ -165,9 +177,13 @@ def ask_job(question: str, asked_by: str, today: str, can_prepare: bool) -> Agen
     tools = ASK_PURCHASING_TOOLS if agent == AGENT else ASK_INVENTORY_TOOLS
     if agent == AGENT and can_prepare and asked_for_order(question):
         tools = tools + (PREPARE,)
+    if agent == AGENT and can_prepare and asked_for_quotes(question):
+        tools = tools + (QUOTE,)
     role = ("the purchasing agent of a small business's stock assistant. You answer questions about vendors, prices, purchase orders and requests"
             if agent == AGENT else "the inventory agent of a small business's stock assistant. You answer questions about stock, usage and what needs reordering")
     extra = (" You may use prepare_order_request ONLY because the person asked for an order; it only sends a request for approval and orders nothing." if PREPARE in tools else "")
+    extra += (" You may use prepare_quote_request ONLY because the person asked for prices from vendors; it only sends a request for approval and messages no vendor."
+              if QUOTE in tools else "")
 
     def check(data: dict[str, Any], ev: Evidence) -> list[str]:
         if not data["answerable"]:

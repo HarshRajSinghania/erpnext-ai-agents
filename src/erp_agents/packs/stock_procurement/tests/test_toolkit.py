@@ -17,12 +17,15 @@ def kit(make_app, clock):
 
 
 def test_every_tool_has_a_description_and_a_schema_that_names_its_required_fields():
-    assert [t.name for t in TOOLS] == ["stock_overview", "stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "prepare_order_request"]
+    assert [t.name for t in TOOLS] == ["stock_overview", "stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "prepare_order_request",
+                                       "late_deliveries", "receipt_mismatches", "vendor_scorecard", "demand_forecast", "slow_stock", "substitutes", "stock_counts",
+                                       "prepare_quote_request"]
     for t in TOOLS:
         schema = t.input_schema()
         assert len(t.description) > 40 and schema["type"] == "object" and set(t.required) <= set(schema["properties"])
         assert t.effect in ("read", "prepare") and t.role in ("viewer", "approver")
-    assert [t.name for t in TOOLS if t.effect == "prepare"] == ["prepare_order_request"]                     # the only tool that does anything; and it only asks a person
+    assert [t.name for t in TOOLS if t.effect == "prepare"] == ["prepare_order_request", "prepare_quote_request"]       # the only tools that do anything; and they only ask a person
+    assert all(t.role == "approver" for t in TOOLS if t.effect == "prepare")
 
 
 def test_the_stock_figures_are_the_ones_the_analysis_gives(kit):

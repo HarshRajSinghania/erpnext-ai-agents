@@ -245,6 +245,35 @@ def _procurement(s) -> None:
     s.add_argument("--status", help="proposals: filter by status")
 
 
+def _followup(s) -> None:
+    s.add_argument("action", choices=["late", "receipts", "scorecard", "quotes", "forecast", "slow", "substitutes", "counts", "variances", "run", "weekly"])
+    s.add_argument("item", nargs="?", help="forecast, substitutes: the item code")
+    s.add_argument("--dry-run", action="store_true", help="run, weekly: show what would be sent; send and store nothing")
+
+
+def cmd_followup(args) -> int:
+    """The purchasing follow-up and stock intelligence: the same results the agents' tools give, printed."""
+    app = pack_app(args, NAME)
+    if app is None:
+        return 1
+    if args.action in ("forecast", "substitutes") and not args.item:
+        print(f"Give an item code: erp-agents followup {args.action} BOLT-M8")
+        return 2
+    if args.action == "run":
+        out = {**app.followup.daily(args.dry_run), "count_differences": app.stock_insight.counts.run_variances(args.dry_run), "quotes": app.followup.quotes.check(args.dry_run)}
+    elif args.action == "weekly":
+        out = {"slow_stock": app.stock_insight.slow.run(args.dry_run), "count_plan": app.stock_insight.counts.run_plan(args.dry_run)}
+    elif args.action == "quotes":
+        out = {"rounds": [{k: r[k] for k in ("id", "item_code", "qty", "status", "reply_by", "status_note")} for r in app.followup.quotes.list()]}
+    else:
+        name, call = {"late": ("late_deliveries", {}), "receipts": ("receipt_mismatches", {}), "scorecard": ("vendor_scorecard", {}),
+                      "forecast": ("demand_forecast", {"item_code": args.item}), "slow": ("slow_stock", {"limit": 25}), "substitutes": ("substitutes", {"item_code": args.item}),
+                      "counts": ("stock_counts", {"kind": "plan"}), "variances": ("stock_counts", {"kind": "variances"})}[args.action]
+        out = app.toolkit.call(name, call, CLI_ACTOR)
+    print(json.dumps(out, indent=2, default=str))
+    return 1 if isinstance(out, dict) and out.get("error") else 0
+
+
 COMMANDS = [
     CliCommand("demo", "run the agent on a built-in demo ERP (no setup needed)", _demo, cmd_demo),
     CliCommand("run-once", "run the inventory check now", _run_once, cmd_run_once),
@@ -252,4 +281,5 @@ COMMANDS = [
     CliCommand("policy", "view/change thresholds (admin)", _policy, cmd_policy),
     CliCommand("alerts", "list alerts", _alerts, cmd_alerts),
     CliCommand("procurement", "vendor selector: run it or list its proposals", _procurement, cmd_procurement),
+    CliCommand("followup", "late deliveries, goods receipt checks, vendor scorecard, quote rounds, forecasts, slow stock, substitutes, cycle counts", _followup, cmd_followup),
 ]

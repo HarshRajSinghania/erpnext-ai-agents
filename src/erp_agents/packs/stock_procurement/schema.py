@@ -1,4 +1,5 @@
-"""The tables of the stock pack: alerts and stock notices, purchase proposals, the "Ask why" answer cache, the chat log and the run log of the two agents.
+"""The tables of the stock pack: alerts and stock notices, purchase proposals, the "Ask why" answer cache, the chat log and the run log of the two agents; and (version 2)
+the purchasing follow-up: messages to vendors and their replies, delivery chases, goods receipt checks, quote rounds, and the stock count plan.
 
 The core creates its own tables; this pack registers these with `Database.register_schema` (the pack's version is kept apart in `pack_schema`). Every repository and service of
 the pack calls `ensure_schema(db)` when it is built, so a database made before packs existed, which already has these tables, just gets its version row.
@@ -10,8 +11,14 @@ import sqlite3
 from typing import Callable
 
 NAME = "stock_procurement"
-VERSION = 1
-MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+VERSION = 2
+
+
+def _v2(conn: sqlite3.Connection) -> None:
+    """Version 2 only adds tables (created by SCHEMA below, which runs after the migrations): nothing in the old ones changes."""
+
+
+MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {2: _v2}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alerts (
@@ -95,6 +102,94 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     finished_at  TEXT,
     dry_run      INTEGER NOT NULL DEFAULT 0,
     summary_json TEXT
+);
+
+-- version 2: purchasing follow-up and stock intelligence
+CREATE TABLE IF NOT EXISTS vendor_messages (
+    id            TEXT PRIMARY KEY,
+    purpose       TEXT NOT NULL,         -- chase | quote
+    ref_id        TEXT NOT NULL,         -- the purchase order chased, or the quote round
+    supplier      TEXT NOT NULL,
+    channel       TEXT NOT NULL,         -- email | whatsapp
+    address_hash  TEXT,                  -- one-way hash of the vendor's number or address, to recognise a reply; no contact data is stored
+    status        TEXT NOT NULL,         -- sent | failed
+    error         TEXT,
+    approval_id   TEXT,
+    sent_by       TEXT,
+    sent_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vendor_messages_ref ON vendor_messages(purpose, ref_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_messages_hash ON vendor_messages(address_hash);
+
+CREATE TABLE IF NOT EXISTS vendor_replies (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id   TEXT NOT NULL,          -- the vendor_messages row it answers
+    supplier     TEXT NOT NULL,
+    purpose      TEXT NOT NULL,
+    ref_id       TEXT NOT NULL,
+    channel      TEXT NOT NULL,
+    text         TEXT NOT NULL,          -- what the vendor wrote (cleaned and capped); never given to a language model
+    received_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS delivery_chases (
+    po_name        TEXT PRIMARY KEY,
+    supplier       TEXT NOT NULL,
+    item_code      TEXT,
+    status         TEXT NOT NULL,        -- open | arrived | dismissed
+    first_late_on  TEXT NOT NULL,
+    asked_at       TEXT,                 -- when a person was last asked whether to chase
+    asks           INTEGER NOT NULL DEFAULT 0,
+    sent_at        TEXT,                 -- when the vendor was last sent a reminder
+    sends          INTEGER NOT NULL DEFAULT 0,
+    approval_id    TEXT,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS receipt_checks (
+    receipt        TEXT PRIMARY KEY,
+    supplier       TEXT NOT NULL,
+    status         TEXT NOT NULL,        -- clean | flagged | acknowledged
+    problems_json  TEXT,
+    approval_id    TEXT,
+    checked_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS quote_rounds (
+    id              TEXT PRIMARY KEY,
+    item_code       TEXT NOT NULL,
+    qty             REAL NOT NULL,
+    uom             TEXT NOT NULL,
+    suppliers_json  TEXT NOT NULL,       -- [{supplier, name}] asked for a price
+    status          TEXT NOT NULL,       -- proposed | asked | compared | ordered | closed
+    reply_by        TEXT,
+    asked_at        TEXT,
+    approval_id     TEXT,                -- the request to send the messages
+    comparison_id   TEXT,                -- the request with the comparison
+    requested_by    TEXT NOT NULL,
+    status_note     TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quote_rounds_item ON quote_rounds(item_code, status);
+
+CREATE TABLE IF NOT EXISTS cycle_counts (
+    item_code        TEXT PRIMARY KEY,
+    abc_class        TEXT NOT NULL,      -- A | B | C
+    last_counted_on  TEXT,
+    due_on           TEXT NOT NULL,
+    planned_on       TEXT,               -- the week it was last put on a count list
+    updated_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS count_reviews (
+    document     TEXT NOT NULL,
+    item_code    TEXT NOT NULL,
+    warehouse    TEXT NOT NULL,
+    variance     REAL NOT NULL,
+    approval_id  TEXT,
+    reviewed_at  TEXT NOT NULL,
+    PRIMARY KEY (document, item_code, warehouse)
 );
 """
 

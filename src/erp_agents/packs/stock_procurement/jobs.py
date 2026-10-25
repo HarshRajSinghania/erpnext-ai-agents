@@ -1,4 +1,5 @@
-"""The stock pack's scheduled work: the daily inventory check, the procurement pass (approved reorders are picked up within minutes), and the agents' morning brief.
+"""The stock pack's scheduled work: the daily inventory check, the procurement pass (approved reorders are picked up within minutes), the agents' morning brief, and the
+follow-up: late deliveries, goods receipts and posted stock counts every day, quote rounds every hour, the slow-stock list and the count plan every week.
 
 The core's scheduler runs the clock; this says what runs when. Every job returns at once when the pack is switched off, so switching it off needs no restart.
 """
@@ -15,6 +16,9 @@ NAME = "stock_procurement"
 INVENTORY_JOB = "inventory_check"
 PROCUREMENT_JOB = "procurement_check"
 BRIEF_JOB = "agent_brief"
+FOLLOWUP_DAILY_JOB = "followup_daily"
+FOLLOWUP_WEEKLY_JOB = "followup_weekly"
+QUOTES_JOB = "quote_rounds"
 
 
 class StockJobs:
@@ -71,6 +75,41 @@ class StockJobs:
         except Exception:  # noqa: BLE001
             log.exception("agent brief failed")
 
+    def _followup_daily_job(self) -> None:
+        """Late deliveries, goods receipts and newly posted stock counts. Each part runs on its own: one failing does not stop the others."""
+        if not self._on():
+            return
+        for name, step in (("delivery chasing", self.app.followup.chaser.run), ("goods receipt check", self.app.followup.receipts.run),
+                           ("stock count differences", self.app.stock_insight.counts.run_variances)):
+            try:
+                res = step()
+                log.info("%s: %s", name, {k: v for k, v in res.items() if k != "actions"})
+            except Exception:  # noqa: BLE001
+                log.exception("%s failed", name)
+
+    def _followup_weekly_job(self) -> None:
+        if not self._on():
+            return
+        for name, step in (("slow stock list", self.app.stock_insight.slow.run), ("count plan", self.app.stock_insight.counts.run_plan)):
+            try:
+                log.info("%s: %s", name, step())
+            except Exception:  # noqa: BLE001
+                log.exception("%s failed", name)
+
+    def _quotes_job(self) -> None:
+        if not self._on():
+            return
+        try:
+            res = self.app.followup.quotes.check()
+            if res["compared"]:
+                log.info("quote rounds: %d compared", res["compared"])
+        except Exception:  # noqa: BLE001
+            log.exception("checking the quote rounds failed")
+
+    def _followup_triggers(self) -> tuple[CronTrigger, CronTrigger]:
+        f, tz = self.app.settings.followup(), ZoneInfo(self.app.settings.system().timezone)
+        return CronTrigger.from_crontab(f.daily_cron, timezone=tz), CronTrigger.from_crontab(f.weekly_cron, timezone=tz)
+
     def _sync_brief_job(self) -> None:
         cfg = self.app.settings.agents()
         cron = cfg.daily_brief_cron.strip() if cfg.enabled and self._on() else ""
@@ -95,6 +134,10 @@ class StockJobs:
         self.sched.add_job(self._inventory_job, self._trigger(), id=INVENTORY_JOB, replace_existing=True)
         # Approved reorders are picked up within minutes, not at the next daily stock check.
         self.sched.add_job(self._procurement_job, "interval", minutes=3, id=PROCUREMENT_JOB, replace_existing=True)
+        daily, weekly = self._followup_triggers()
+        self.sched.add_job(self._followup_daily_job, daily, id=FOLLOWUP_DAILY_JOB, replace_existing=True)
+        self.sched.add_job(self._followup_weekly_job, weekly, id=FOLLOWUP_WEEKLY_JOB, replace_existing=True)
+        self.sched.add_job(self._quotes_job, "interval", hours=1, id=QUOTES_JOB, replace_existing=True)
 
     def after_start(self) -> None:
         self._sync_brief_job()
@@ -104,4 +147,8 @@ class StockJobs:
         if self.sched.get_job(INVENTORY_JOB):
             self.sched.reschedule_job(INVENTORY_JOB, trigger=self._trigger())
             log.info("inventory schedule is now %r", self.app.settings.system().check_cron)
+        if self.sched.get_job(FOLLOWUP_DAILY_JOB):
+            daily, weekly = self._followup_triggers()
+            self.sched.reschedule_job(FOLLOWUP_DAILY_JOB, trigger=daily)
+            self.sched.reschedule_job(FOLLOWUP_WEEKLY_JOB, trigger=weekly)
         self._sync_brief_job()

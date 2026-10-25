@@ -152,6 +152,16 @@ class WhatsAppChannel(Channel):
             }
         return self._post({"to": address, "type": "interactive", "interactive": interactive})
 
+    def send_template_text(self, address: str, template: str, text: str) -> DeliveryResult:
+        """An approved template with one body variable, for a message to someone who may not have written in the last 24 hours (a pack's message to a business
+        partner). The text becomes the variable, on one line."""
+        if not address:
+            return DeliveryResult(ok=False, error="whatsapp: recipient has no number")
+        body = truncate(" ".join(text.split()), MAX_TEMPLATE_VAR, suffix="…")
+        return self._post({"to": address, "type": "template",
+                           "template": {"name": template, "language": {"code": self.template_language},
+                                        "components": [{"type": "body", "parameters": [{"type": "text", "text": body}]}]}})
+
     def plain_only(self, kind: str) -> None:
         """A pack says that this kind of request carries its own buttons: it is sent as a plain message, never with the default template (whose buttons would say something
         else), unless the settings file names a template for it."""

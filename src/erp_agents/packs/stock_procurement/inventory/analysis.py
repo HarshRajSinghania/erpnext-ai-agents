@@ -19,8 +19,9 @@ from datetime import date, timedelta
 from typing import Any, Optional, Sequence
 
 from ..settings import Policy
-from erp_agents.core.erp.base import IN_TRANSIT_COLUMN, IN_TRANSIT_LABEL, STOCK_COLUMNS, DailyUsage, ItemInfo, StockInfo, column_phrase, stock_column
+from erp_agents.core.erp.base import IN_TRANSIT_COLUMN, IN_TRANSIT_LABEL, STOCK_COLUMNS, DailyUsage, ItemInfo, SalesDue, StockInfo, column_phrase, stock_column
 from .events import Window, days_until_demand, describe, total_demand
+from .forecast import forecast_reorder_point
 
 EPS = 1e-9
 SEASONAL_MIN_UPLIFT = 1.15       # ignore last-year swings smaller than +15 % (noise)
@@ -105,6 +106,7 @@ class Analysis:
     days_to_trigger: Optional[float] = None        # predictive: days until the first rule would trip
     trigger_rule: Optional[str] = None
     high_rate_cover_days: Optional[float] = None
+    forecast: Optional[dict[str, Any]] = None              # the reorder point from seasonality and open sales orders (inventory/forecast.py)
     # outputs
     reasons: list[Reason] = field(default_factory=list)
     drivers: list[str] = field(default_factory=list)
@@ -240,8 +242,10 @@ def analyze_item(
     policy: Policy,
     today: date,
     windows: Sequence[Window] = (),
+    sales: Sequence[SalesDue] = (),
 ) -> Analysis:
-    """`windows` = the calendar events (festivals, promotions) that apply to this item; none = demand is unchanged."""
+    """`windows` = the calendar events (festivals, promotions) that apply to this item; none = demand is unchanged. `sales` = what is still to deliver on its open
+    sales orders, with the dates the customers want it (none = not known)."""
     transit = max(stock.in_transit, 0.0)
     shelf = stock.on_hand + (transit if policy.in_transit_stock == "shelf" else 0.0)       # stock in transit counts as on the shelf only if the owner says so
     a = Analysis(
@@ -324,6 +328,8 @@ def analyze_item(
 
     # ---- rules
     lead_trigger = a.lead_time_days + policy.safety_stock_days
+    if policy.forecast_reorder_point:
+        a.forecast = forecast_reorder_point(usage, sales, policy, today, rate, lead_trigger, a.position, stats.data_days, windows).to_dict()
     _evaluate_rules(a, policy, rate, lead_trigger)
 
     # ---- confidence
@@ -380,6 +386,18 @@ def _evaluate_rules(a: Analysis, policy: Policy, rate: float, lead_trigger: floa
                                     {"cover_days": a.cover_days_position, "trigger_days": lead_trigger}))
     else:
         add_rule("lead_time_rule", policy.use_lead_time_rule, lead_trigger, a.cover_days_position, False, "lead-time rule")
+
+    # the forecast reorder point: seasonality and open sales orders (only when it says more than the plain lead-time rule, and that rule has not tripped)
+    f = a.forecast
+    if f is not None:
+        lead_tripped = any(r.code == "lead_time_rule" for r in a.reasons)
+        tripped = bool(f["below"] and f["differs"] and not lead_tripped)
+        add_rule("forecast_reorder_point", True, f["reorder_point"], a.position, tripped, "stock position vs forecast demand over lead time + safety days")
+        if tripped:
+            a.reasons.append(Reason("forecast_reorder_point", forecast_reason(f, u), {"reorder_point": f["reorder_point"], "position": a.position,
+                                                                              "seasonal_index": f["seasonal_index"], "sales_due": f["sales_due"]}))
+    else:
+        add_rule("forecast_reorder_point", False, None, a.position, False, "forecast order point is off")
 
     # stock-out before a known arrival (even if position looks fine thanks to the open PO)
     if a.next_arrival and a.gap_days is not None and a.gap_days > 0 and stats.planning_rate > EPS:
@@ -538,6 +556,20 @@ def _confidence(a: Analysis, stats: UsageStats, policy: Policy) -> None:
         why.append(f"usage seen on only {stats.nonzero_days} days")
     a.confidence = "High" if score >= 2 else "Medium" if score == 1 else "Low"
     a.confidence_why = why
+
+
+def forecast_reason(f: dict[str, Any], u: str) -> str:
+    """Why the forecast says it is time to order, with its numbers."""
+    parts = []
+    if f["seasonal_index"] > 1.0 and f.get("last_year_window_rate") is not None:
+        parts.append(f"about {_n(f['expected_use'])} {u} of use: {_n(f['planned_rate'], 2)} {u}/day raised x{_n(f['seasonal_index'], 2)} because the same days last year "
+                     f"ran at {_n(f['last_year_window_rate'], 2)}/day against a normal {_n(f['last_year_normal_rate'], 2)}/day")
+    if f["sales_due"] > 0 and not f["sales_already_reserved"]:
+        parts.append(f"{_n(f['sales_due'])} {u} still to deliver on open sales orders due by {_d(f['sales_last_due'])}" if f.get("sales_last_due") else
+                     f"{_n(f['sales_due'])} {u} still to deliver on open sales orders")
+    need = " and ".join(parts) or f"about {_n(f['reorder_point'])} {u}"
+    return (f"The forecast for the next {_n(f['window_days'])} days (lead time + safety days) is {need}, so you need about {_n(f['reorder_point'])} {u}; "
+            f"the stock position is {_n(f['position'])} {u} - it is time to order.")
 
 
 # ===================================================================== formatting helpers

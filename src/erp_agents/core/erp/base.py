@@ -168,6 +168,99 @@ class PurchaseOrderResult:
     submitted: bool = False                  # update_purchase_order_qty: the order is submitted (not a draft)
 
 
+@dataclass(frozen=True)
+class ReceiptLine:
+    """One line of a goods receipt (ERPNext: Purchase Receipt Item), with what its purchase order line asked for and the invoice against it, if any.
+    Prices are in company currency."""
+    receipt: str
+    posting_date: Optional[date]
+    supplier: str
+    supplier_name: str
+    item_code: str
+    item_name: str
+    uom: str
+    received_qty: float                       # everything that arrived (accepted + rejected)
+    accepted_qty: float
+    rejected_qty: float = 0.0
+    rate: Optional[float] = None              # price per unit on the receipt
+    purchase_order: Optional[str] = None
+    po_qty: Optional[float] = None            # what the order line asked for
+    po_rate: Optional[float] = None           # the order line's price per unit
+    po_due: Optional[date] = None             # the order line's required-by date
+    po_received_before: float = 0.0           # received against the order line by earlier receipts
+    invoice: Optional[str] = None             # a purchase invoice against this receipt or its order, if any
+    invoice_status: Optional[str] = None      # Draft | Unpaid | Partly Paid | Paid | Overdue | ...
+    invoice_rate: Optional[float] = None      # the invoice line's price per unit, if it could be read
+    submitted: bool = True                    # False = the receipt is still a draft
+
+
+@dataclass(frozen=True)
+class SalesDue:
+    """Quantity still to deliver on an open sales order line, and when the customer wants it. No customer is named."""
+    item_code: str
+    due: Optional[date]
+    qty: float
+
+
+@dataclass(frozen=True)
+class SupplierContact:
+    """How to reach a supplier, from its contact in the ERP. PERSONAL DATA: used only to send a message a person approved, never shown to a language model,
+    never logged in full and never stored (only a one-way hash of the number, to recognise a reply)."""
+    supplier: str
+    contact_name: str = ""
+    email: str = ""
+    mobile: str = ""                          # as written in the ERP; the sender cleans it into a WhatsApp number
+
+
+@dataclass(frozen=True)
+class CountLine:
+    """One line of a stock count (ERPNext: Stock Reconciliation Item): what was counted against what the system said."""
+    document: str
+    posting_date: Optional[date]
+    item_code: str
+    warehouse: str
+    counted_qty: float
+    system_qty: float                         # the quantity the ERP held before the count (current_qty)
+    submitted: bool = True
+
+
+@dataclass(frozen=True)
+class MessageResult:
+    ok: bool
+    reference: Optional[str] = None           # e.g. the ERP's Communication record
+    error: Optional[str] = None
+
+
+@runtime_checkable
+class FollowUpERP(Protocol):
+    """What the purchasing follow-up and stock intelligence features read from the ERP, in addition to `ERPClient`. Every method is optional: a feature whose method
+    an ERP connection lacks says so instead of guessing (call them through `getattr`)."""
+
+    def get_receipt_lines(self, since: date) -> list[ReceiptLine]: ...
+
+    def get_open_sales_orders(self, item_codes: Sequence[str], until: date) -> dict[str, list[SalesDue]]: ...
+
+    def get_supplier_contact(self, supplier: str) -> Optional[SupplierContact]: ...
+
+    def get_item_alternatives(self, item_code: str) -> list[str]:
+        """Item codes the ERP lists as approved alternatives (ERPNext: Item Alternative, both ways when the record says two-way)."""
+        ...
+
+    def get_stock_counts(self, since: date) -> list[CountLine]: ...
+
+    def get_stock_values(self, item_codes: Sequence[str]) -> dict[str, float]:
+        """Value of the stock on hand per item, in company currency (ERPNext: Bin stock_value)."""
+        ...
+
+    def last_purchase_dates(self, item_codes: Sequence[str]) -> dict[str, tuple[date, str]]:
+        """When each item was last received, and from which supplier."""
+        ...
+
+    def send_email(self, recipients: Sequence[str], subject: str, body: str, reference_doctype: str, reference_name: str) -> MessageResult:
+        """Send an e-mail through the ERP's own outgoing mail account, recorded on the document (ERPNext: a Communication)."""
+        ...
+
+
 @runtime_checkable
 class ERPClient(Protocol):
     def list_items(self) -> list[ItemInfo]: ...

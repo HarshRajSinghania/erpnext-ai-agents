@@ -7,7 +7,7 @@
 
 ## Status on 25 Oct 2026
 
-Code: 1,201 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026; `bandit` and `pip-audit` report nothing. Inventory monitor, vendor selector, landed cost, demand calendar, approval channels (console, inbox, Telegram,
+Code: 1,264 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026; `bandit` and `pip-audit` report nothing. Inventory monitor, vendor selector, landed cost, demand calendar, approval channels (console, inbox, Telegram,
 WhatsApp), the "Ask why" assistant, chat, the AI agents, the MCP server and the web console exist. Checked live against an ERPNext v16 test instance on 20-22 Oct 2026 (reads,
 vendor comparison, sign-in, permissions, draft Purchase Order and Material Request; see [E2E_TEST_RESULTS.md](E2E_TEST_RESULTS.md)); that live suite has **not** been re-run since.
 Telegram and WhatsApp messages were delivered on the author's own accounts; WhatsApp button replies are covered by fake-transport tests only.

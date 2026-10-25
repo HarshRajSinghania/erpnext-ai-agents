@@ -53,6 +53,7 @@ class App:
     agent_log: Optional[Any] = None                 # the record of what the agents did
     agents: Optional[Any] = None                    # the AI agents (agents/service.py); the optional 'agents' dependencies are only needed when one runs
     services: dict[str, Any] = field(default_factory=dict)      # what the packs that are switched on provide, by name
+    reschedule_scopes: tuple[str, ...] = ()        # settings sections whose change reschedules the packs' jobs (besides system and agents)
 
     def __getattr__(self, name: str) -> Any:
         # reached only when the application itself has no such attribute: a service a pack provided

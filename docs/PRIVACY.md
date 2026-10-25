@@ -6,7 +6,7 @@ This page is written for the person who runs the app on their own ERPNext, and a
 
 ## What the app reads from your ERPNext
 
-Items, stock levels, warehouses, delivery and sales quantities (to work out usage), purchase orders, requisitions and receipts, suppliers' prices and delivery history, supplier quotations. It reads with the service account you gave it, and creates *draft* purchase orders or requisitions only when a person presses Create order.
+Items, stock levels and stock values, warehouses, delivery and sales quantities (to work out usage), quantities still to deliver on open sales orders (no customer is read), purchase orders, requisitions and receipts, purchase invoices (status and price only), suppliers' prices and delivery history, supplier quotations, item alternatives, stock counts (Stock Reconciliation), and, only at the moment a person presses Send on a message to a vendor, that supplier's e-mail address or mobile number from its contact. It reads with the service account you gave it, and creates *draft* purchase orders or requisitions only when a person presses Create order.
 
 ## What it keeps
 
@@ -21,6 +21,7 @@ On the machine that runs it (a SQLite file, `database.path`): its settings, the 
 | "Ask why" and chat routing (`assistant`) | The facts of one request and the question | The Ollama server in `assistant.base_url` | Off. Must be on this machine unless `allow_remote` is on |
 | **AI agents** (`agents`) | See the next section | The language model you choose: Ollama on this computer (default), or Claude (Anthropic), OpenAI or Gemini (Google) | **Off.** On this computer unless you choose a hosted provider **and** tick the box that confirms the data is sent to it |
 | MCP server | The tool results listed below | The MCP client you connected (Claude Desktop, another agent) | stdio: only when you start it. HTTP: off |
+| Messages to vendors (delivery reminders, requests for a price) | The message shown in the request: your order number, item, quantities, dates, your signature | The vendor, by e-mail through **your ERPNext's** outgoing mail account, or by WhatsApp (Meta), to the address on the supplier's contact in ERPNext | Only when a person presses Send reminder / Send requests. The address is not stored (a one-way hash only, to recognise a reply) and never goes to a language model |
 
 Telegram and WhatsApp are third-party services with their own privacy policies; a WhatsApp or Telegram message about a purchase leaves your control once sent. If that matters, use the console and sign-in only (leave the channels unconfigured).
 

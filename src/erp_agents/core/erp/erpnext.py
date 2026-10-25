@@ -43,7 +43,8 @@ except Exception:  # pragma: no cover
 from urllib.parse import quote
 
 from ..netguard import no_redirects
-from .base import STOCK_COLUMNS, DailyUsage, ItemInfo, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, RequisitionDraft, StockInfo, TaxRow, TaxSetup, VendorOffer
+from .base import (STOCK_COLUMNS, CountLine, DailyUsage, ItemInfo, MessageResult, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, ReceiptLine, RequisitionDraft, SalesDue,
+                   StockInfo, SupplierContact, TaxRow, TaxSetup, VendorOffer)
 
 log = logging.getLogger(__name__)
 
@@ -629,11 +630,11 @@ class ERPNextClient:
 
     # ---------------------------------------------------------------- reading documents (for the chat and status questions)
     _DOC_SPECS = {
-        "Purchase Order": dict(child="Purchase Order Item", party="supplier_name", date="transaction_date", due="schedule_date", total="grand_total", currency="currency",
+        "Purchase Order": dict(child="Purchase Order Item", party="supplier_name", party_id="supplier", date="transaction_date", due="schedule_date", total="grand_total", currency="currency",
                                done="received_qty", per_received="per_received", per_billed="per_billed", kind=None),
-        "Material Request": dict(child="Material Request Item", party=None, date="transaction_date", due="schedule_date", total=None, currency=None,
+        "Material Request": dict(child="Material Request Item", party=None, party_id=None, date="transaction_date", due="schedule_date", total=None, currency=None,
                                  done="ordered_qty", per_received="per_received", per_billed=None, kind="material_request_type"),
-        "Purchase Receipt": dict(child="Purchase Receipt Item", party="supplier_name", date="posting_date", due=None, total="grand_total", currency="currency",
+        "Purchase Receipt": dict(child="Purchase Receipt Item", party="supplier_name", party_id="supplier", date="posting_date", due=None, total="grand_total", currency="currency",
                                  done="qty", per_received=None, per_billed="per_billed", kind=None),
     }
 
@@ -652,7 +653,7 @@ class ERPNextClient:
             if not parents:
                 return []
             flt.append(["name", "in", parents[:500]])
-        base = ["name", "status", "docstatus", "owner", "creation"] + [spec[k] for k in ("party", "date", "due", "total", "currency", "per_received", "per_billed", "kind") if spec[k]]
+        base = ["name", "status", "docstatus", "owner", "creation"] + [spec[k] for k in ("party", "party_id", "date", "due", "total", "currency", "per_received", "per_billed", "kind") if spec[k]]
         tiers = [base + ["custom_agent_approved_by"], base]                       # the field exists only after `erp-agents erp-setup`
         rows = None
         for fields in tiers:
@@ -674,6 +675,7 @@ class ERPNextClient:
         for r in rows:
             out.append({
                 "doctype": doctype, "name": r["name"], "status": r.get("status") or "", "docstatus": int(r.get("docstatus") or 0), "party": r.get(spec["party"]) if spec["party"] else None,
+                "party_id": r.get(spec["party_id"]) if spec["party_id"] else None,
                 "date": r.get(spec["date"]), "due": r.get(spec["due"]) if spec["due"] else None, "created_by": r.get("owner"), "approved_by": r.get("custom_agent_approved_by") or "",
                 "per_received": float(r.get(spec["per_received"]) or 0) if spec["per_received"] else None, "per_billed": float(r.get(spec["per_billed"]) or 0) if spec["per_billed"] else None,
                 "total": float(r.get(spec["total"]) or 0) if spec["total"] else None, "currency": r.get(spec["currency"]) if spec["currency"] else None,
@@ -829,6 +831,175 @@ class ERPNextClient:
             (MR_NOTE_FIELD, MR_NOTE_LABEL, "Small Text", PO_APPROVER_FIELD, 0, "The Stock Assistant's recommendation (vendor, price, delivery) for the buyer. Do not edit."),
         ),
     }
+
+    # ---------------------------------------------------------------- purchasing follow-up and stock intelligence (FollowUpERP in base.py)
+    def get_receipt_lines(self, since: date) -> list[ReceiptLine]:
+        """Goods receipts posted since `since` (drafts too, returns left out), each line with its purchase order line and any purchase invoice against it.
+        Prices are compared in the order's own currency (the receipt and the order of one supplier share it)."""
+        heads = {h["name"]: h for h in self._list("Purchase Receipt", ["name", "supplier", "supplier_name", "posting_date", "docstatus", "is_return"],
+                                                  [["posting_date", ">=", since.isoformat()], ["docstatus", "<", 2]]) if not h.get("is_return")}
+        if not heads:
+            return []
+        lines: list[dict] = []
+        for chunk in _chunks(sorted(heads), 100):
+            lines += self._list("Purchase Receipt Item", ["parent", "item_code", "item_name", "uom", "received_qty", "qty", "rejected_qty", "rate", "purchase_order", "purchase_order_item"],
+                                [["parent", "in", list(chunk)]], parent="Purchase Receipt")
+        po_lines: dict[str, dict] = {}
+        try:
+            for chunk in _chunks(sorted({l["purchase_order_item"] for l in lines if l.get("purchase_order_item")}), 100):
+                for r in self._list("Purchase Order Item", ["name", "parent", "qty", "rate", "schedule_date", "received_qty"], [["name", "in", list(chunk)]], parent="Purchase Order"):
+                    po_lines[r["name"]] = r
+        except (ERPNextError, requests.RequestException) as exc:
+            log.warning("could not read the purchase order lines behind the receipts (nothing to compare against): %s", exc)
+        invoices = self._invoices_for(sorted(heads), sorted({l["purchase_order"] for l in lines if l.get("purchase_order")}))
+        out = []
+        for l in lines:
+            h = heads.get(l["parent"])
+            if not h or not l.get("item_code"):
+                continue
+            po = po_lines.get(l.get("purchase_order_item") or "")
+            received = float(l.get("received_qty") or 0) or float(l.get("qty") or 0) + float(l.get("rejected_qty") or 0)
+            submitted = int(h.get("docstatus") or 0) == 1
+            before = float(po.get("received_qty") or 0) - (float(l.get("qty") or 0) if submitted else 0.0) if po else 0.0
+            inv = invoices.get((l["parent"], l["item_code"])) or invoices.get((l.get("purchase_order") or "", l["item_code"])) or {}
+            out.append(ReceiptLine(
+                receipt=l["parent"], posting_date=_to_date(h.get("posting_date")), supplier=h.get("supplier") or "", supplier_name=h.get("supplier_name") or h.get("supplier") or "",
+                item_code=l["item_code"], item_name=l.get("item_name") or l["item_code"], uom=l.get("uom") or "units", received_qty=received, accepted_qty=float(l.get("qty") or 0),
+                rejected_qty=float(l.get("rejected_qty") or 0), rate=float(l["rate"]) if l.get("rate") is not None else None, purchase_order=l.get("purchase_order") or None,
+                po_qty=float(po["qty"]) if po and po.get("qty") is not None else None, po_rate=float(po["rate"]) if po and po.get("rate") is not None else None,
+                po_due=_to_date(po.get("schedule_date")) if po else None, po_received_before=max(before, 0.0),
+                invoice=inv.get("name"), invoice_status=inv.get("status"), invoice_rate=inv.get("rate"), submitted=submitted))
+        return out
+
+    def _invoices_for(self, receipts: list[str], orders: list[str]) -> dict[tuple[str, str], dict[str, Any]]:
+        """(receipt or order, item) -> the purchase invoice against it: its name, status and price. Unknown when the ERP cannot say (never a guess)."""
+        found: dict[tuple[str, str], dict[str, Any]] = {}
+        try:
+            rows: list[dict] = []
+            for field, names in (("purchase_receipt", receipts), ("purchase_order", orders)):
+                for chunk in _chunks(names, 100):
+                    rows += self._list("Purchase Invoice Item", ["parent", "item_code", "rate", "purchase_receipt", "purchase_order"], [[field, "in", list(chunk)]], parent="Purchase Invoice")
+            heads: dict[str, dict] = {}
+            for chunk in _chunks(sorted({r["parent"] for r in rows}), 100):
+                for h in self._list("Purchase Invoice", ["name", "status", "docstatus"], [["name", "in", list(chunk)], ["docstatus", "<", 2]]):
+                    heads[h["name"]] = h
+        except (ERPNextError, requests.RequestException) as exc:
+            log.warning("could not read the purchase invoices against the receipts (payment state unknown): %s", exc)
+            return {}
+        for r in rows:
+            h = heads.get(r["parent"])
+            if not h:
+                continue
+            info = {"name": h["name"], "status": "Draft" if int(h.get("docstatus") or 0) == 0 else (h.get("status") or "Submitted"),
+                    "rate": float(r["rate"]) if r.get("rate") is not None else None}
+            for key in (r.get("purchase_receipt"), r.get("purchase_order")):
+                if key:
+                    found.setdefault((key, r.get("item_code") or ""), info)
+        return found
+
+    def get_open_sales_orders(self, item_codes: Sequence[str], until: date) -> dict[str, list[SalesDue]]:
+        """Quantity still to deliver on submitted, open sales orders due by `until` (overdue lines included), in the stock unit. No customer is read."""
+        out: dict[str, list[SalesDue]] = defaultdict(list)
+        lines: list[dict] = []
+        for chunk in _chunks(list(item_codes), 100):
+            lines += self._list("Sales Order Item", ["parent", "item_code", "qty", "delivered_qty", "conversion_factor", "delivery_date"],
+                                [["item_code", "in", list(chunk)], ["docstatus", "=", 1], ["delivery_date", "<=", until.isoformat()]], parent="Sales Order")
+        open_orders: set[str] = set()
+        for chunk in _chunks(sorted({l["parent"] for l in lines}), 100):
+            for h in self._list("Sales Order", ["name", "status"], [["name", "in", list(chunk)], ["docstatus", "=", 1]]):
+                if (h.get("status") or "") not in ("Closed", "Completed", "Cancelled", "On Hold", "To Bill"):
+                    open_orders.add(h["name"])
+        for l in lines:
+            left = (float(l.get("qty") or 0) - float(l.get("delivered_qty") or 0)) * float(l.get("conversion_factor") or 1)
+            if l["parent"] in open_orders and left > 0 and l.get("item_code"):
+                out[l["item_code"]].append(SalesDue(l["item_code"], _to_date(l.get("delivery_date")), left))
+        return dict(out)
+
+    def get_supplier_contact(self, supplier: str) -> Optional[SupplierContact]:
+        """The supplier's e-mail and mobile number: the Supplier's own fields (from its primary contact) first, then its linked Contacts, primary first.
+        Nothing about the contact is logged."""
+        email = mobile = name = ""
+        try:
+            s = self._doc("Supplier", supplier)
+            email, mobile, name = (s.get("email_id") or "").strip(), (s.get("mobile_no") or "").strip(), (s.get("supplier_primary_contact") or "").strip()
+        except (ERPNextError, requests.RequestException) as exc:
+            log.warning("could not read supplier %s: %s", supplier, type(exc).__name__)
+        if not (email and mobile):
+            try:
+                rows = self._list("Contact", ["name", "first_name", "email_id", "mobile_no", "phone", "is_primary_contact"],
+                                  [["Dynamic Link", "link_doctype", "=", "Supplier"], ["Dynamic Link", "link_name", "=", supplier]])
+            except (ERPNextError, requests.RequestException) as exc:
+                log.warning("could not read the contacts of supplier %s: %s", supplier, type(exc).__name__)
+                rows = []
+            for r in sorted(rows, key=lambda r: not r.get("is_primary_contact")):
+                email = email or (r.get("email_id") or "").strip()
+                mobile = mobile or (r.get("mobile_no") or r.get("phone") or "").strip()
+                name = name or (r.get("first_name") or r.get("name") or "")
+        if not (email or mobile):
+            return None
+        return SupplierContact(supplier=supplier, contact_name=name, email=email, mobile=mobile)
+
+    def get_item_alternatives(self, item_code: str) -> list[str]:
+        rows = self._list("Item Alternative", ["item_code", "alternative_item_code", "two_way"], [["item_code", "=", item_code]])
+        both = self._list("Item Alternative", ["item_code", "alternative_item_code", "two_way"], [["alternative_item_code", "=", item_code], ["two_way", "=", 1]])
+        codes = [r["alternative_item_code"] for r in rows if r.get("item_code") == item_code and r.get("alternative_item_code")]
+        codes += [r["item_code"] for r in both if r.get("alternative_item_code") == item_code and r.get("two_way") and r.get("item_code")]
+        return [c for c in dict.fromkeys(codes) if c != item_code]
+
+    def get_stock_counts(self, since: date) -> list[CountLine]:
+        heads = {h["name"]: h for h in self._list("Stock Reconciliation", ["name", "posting_date", "docstatus", "purpose"],
+                                                  [["posting_date", ">=", since.isoformat()], ["docstatus", "<", 2]]) if (h.get("purpose") or "Stock Reconciliation") != "Opening Stock"}
+        out = []
+        for chunk in _chunks(sorted(heads), 100):
+            for l in self._list("Stock Reconciliation Item", ["parent", "item_code", "warehouse", "qty", "current_qty"], [["parent", "in", list(chunk)]], parent="Stock Reconciliation"):
+                h = heads.get(l["parent"])
+                if h and l.get("item_code"):
+                    out.append(CountLine(document=l["parent"], posting_date=_to_date(h.get("posting_date")), item_code=l["item_code"], warehouse=l.get("warehouse") or "",
+                                         counted_qty=float(l.get("qty") or 0), system_qty=float(l.get("current_qty") or 0), submitted=int(h.get("docstatus") or 0) == 1))
+        return out
+
+    def get_stock_values(self, item_codes: Sequence[str]) -> dict[str, float]:
+        out: dict[str, float] = defaultdict(float)
+        for chunk in _chunks(list(item_codes), 100):
+            flt: list = [["item_code", "in", list(chunk)]]
+            if self.warehouses:
+                flt.append(["warehouse", "in", self.warehouses])
+            for r in self._list("Bin", ["item_code", "stock_value"], flt):
+                if r.get("item_code"):
+                    out[r["item_code"]] += float(r.get("stock_value") or 0)
+        return dict(out)
+
+    def last_purchase_dates(self, item_codes: Sequence[str]) -> dict[str, tuple[date, str]]:
+        lines: list[dict] = []
+        for chunk in _chunks(list(item_codes), 100):
+            lines += self._list("Purchase Receipt Item", ["parent", "item_code"], [["item_code", "in", list(chunk)], ["docstatus", "=", 1]], parent="Purchase Receipt")
+        heads: dict[str, dict] = {}
+        for chunk in _chunks(sorted({l["parent"] for l in lines}), 100):
+            for h in self._list("Purchase Receipt", ["name", "posting_date", "supplier", "is_return"], [["name", "in", list(chunk)], ["docstatus", "=", 1]]):
+                heads[h["name"]] = h
+        out: dict[str, tuple[date, str]] = {}
+        for l in lines:
+            h = heads.get(l["parent"])
+            d = _to_date(h.get("posting_date")) if h and not h.get("is_return") else None
+            if d and (l["item_code"] not in out or d > out[l["item_code"]][0]):
+                out[l["item_code"]] = (d, h.get("supplier") or "")
+        return out
+
+    def send_email(self, recipients: Sequence[str], subject: str, body: str, reference_doctype: str, reference_name: str) -> MessageResult:
+        """Through ERPNext's own outgoing e-mail account (frappe.core.doctype.communication.email.make): the message is recorded as a Communication on the document,
+        so it shows in the ERP's timeline. Fails when no outgoing e-mail account is set up in ERPNext."""
+        payload = {"recipients": ", ".join(recipients), "subject": subject, "content": body, "doctype": reference_doctype, "name": reference_name,
+                   "send_email": 1, "communication_medium": "Email"}
+        try:
+            resp = self.session.post(f"{self.base_url}/api/method/frappe.core.doctype.communication.email.make", json=payload, timeout=self.timeout)
+        except requests.RequestException as exc:
+            return MessageResult(ok=False, error=f"could not reach ERPNext: {type(exc).__name__}")
+        if resp.status_code >= 400:
+            return MessageResult(ok=False, error=f"ERPNext did not send the e-mail (HTTP {resp.status_code}): {_erp_message(resp)}")
+        message = (resp.json() or {}).get("message")
+        ref = message.get("name") if isinstance(message, dict) else (str(message) if message else None)
+        return MessageResult(ok=True, reference=ref)
+
 
     def ensure_po_reference_field(self) -> str:
         """Create the fields the Stock Assistant writes on Purchase Order and Material Request if missing.

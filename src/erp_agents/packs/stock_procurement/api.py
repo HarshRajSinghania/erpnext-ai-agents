@@ -38,6 +38,13 @@ class AgentAskBody(BaseModel):
     question: str = Field(min_length=1, max_length=300)
 
 
+class QuoteBody(BaseModel):
+    item_code: str = Field(min_length=1, max_length=140)
+    qty: Optional[float] = Field(None, gt=0, le=1_000_000_000)
+    reason: str = Field("", max_length=300)
+    vendors: list[str] = Field(default_factory=list, max_length=5, description="Only these suppliers (codes or names). Empty = the best ones on record.")
+
+
 class PolicyUpdate(BaseModel):
     set: dict[str, Any] = Field(default_factory=dict, description="Fields to override. null switches a nullable threshold off.")
     clear: list[str] = Field(default_factory=list, description="Fields to inherit again.")
@@ -45,6 +52,71 @@ class PolicyUpdate(BaseModel):
 
 def routes(router: Any, ctx: Any, deps: Any) -> None:
     require, MAX_LIST_LIMIT = deps.require, deps.MAX_LIST_LIMIT
+
+    # ---------------------------------------------------------------- purchasing follow-up and stock intelligence (the same results as the agents' tools)
+    def tool(name: str, args: dict[str, Any], actor: Actor) -> dict:
+        res = ctx.toolkit.call(name, {k: v for k, v in args.items() if v is not None}, actor)
+        if isinstance(res, dict) and res.get("error") and len(res) <= 2:
+            raise HTTPException(404 if res["error"].startswith("no item") else 422, res["error"])
+        return res
+
+    @router.get("/api/v1/followup/late-deliveries")
+    def late_deliveries(actor: Actor = Depends(require("viewer"))) -> dict:
+        """Open purchase orders past their due date, with what each delay does to stock cover."""
+        return tool("late_deliveries", {}, actor)
+
+    @router.get("/api/v1/followup/receipts")
+    def receipt_mismatches(days: Optional[int] = Query(None, ge=1, le=120), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("receipt_mismatches", {"days": days}, actor)
+
+    @router.get("/api/v1/followup/scorecard")
+    def vendor_scorecard(days: Optional[int] = Query(None, ge=30, le=730), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("vendor_scorecard", {"days": days}, actor)
+
+    @router.get("/api/v1/followup/quotes")
+    def quote_rounds(limit: int = Query(20, ge=1, le=MAX_LIST_LIMIT), _: Actor = Depends(require("viewer"))) -> list[dict]:
+        return [{k: r[k] for k in ("id", "item_code", "qty", "uom", "status", "reply_by", "asked_at", "approval_id", "comparison_id", "status_note", "created_at")}
+                | {"vendors": [v["name"] for v in r["suppliers"]]} for r in ctx.followup.quotes.list(limit=limit)]
+
+    @router.post("/api/v1/followup/quotes")
+    def prepare_quotes(body: QuoteBody, actor: Actor = Depends(require("approver"))) -> dict:
+        """Prepare a request to ask vendors for a price. It messages no vendor: a person presses Send requests."""
+        qty = body.qty
+        if qty is None:
+            try:
+                a, _ = ctx.inventory.analyze_one(body.item_code)
+            except KeyError as exc:
+                raise HTTPException(404, str(exc))
+            qty = a.suggested_qty or ctx.settings.procurement().fallback_qty
+            if not qty:
+                raise HTTPException(422, "there is no usage history to size the quantity from: give a quantity")
+        res = ctx.followup.quotes.prepare(body.item_code, float(qty), actor.id, body.reason, body.vendors or None)
+        if res["status"] == "refused":
+            raise HTTPException(422, res["error"])
+        return res
+
+    @router.post("/api/v1/followup/run")
+    def run_followup(dry_run: bool = True, weekly: bool = False, _: Actor = Depends(require("admin"))) -> dict:
+        """Dry-run by default. The daily pass (late deliveries, goods receipts, count differences, quote rounds) or, with weekly=true, the slow-stock list and the count plan."""
+        if weekly:
+            return {"slow_stock": ctx.stock_insight.slow.run(dry_run), "count_plan": ctx.stock_insight.counts.run_plan(dry_run)}
+        return {**ctx.followup.daily(dry_run), "count_differences": ctx.stock_insight.counts.run_variances(dry_run), "quotes": ctx.followup.quotes.check(dry_run)}
+
+    @router.get("/api/v1/inventory/forecast/{item_code}")
+    def demand_forecast(item_code: str, weeks: int = Query(6, ge=1, le=13), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("demand_forecast", {"item_code": item_code, "weeks": weeks}, actor)
+
+    @router.get("/api/v1/inventory/slow-stock")
+    def slow_stock(limit: int = Query(25, ge=1, le=25), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("slow_stock", {"limit": limit}, actor)
+
+    @router.get("/api/v1/inventory/substitutes/{item_code}")
+    def substitutes(item_code: str, actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("substitutes", {"item_code": item_code}, actor)
+
+    @router.get("/api/v1/inventory/counts")
+    def stock_counts(kind: str = Query("plan", pattern="^(plan|variances)$"), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("stock_counts", {"kind": kind}, actor)
 
     @router.get("/api/v1/settings/procurement")
     def get_procurement(_: Actor = Depends(require("viewer"))) -> dict:
