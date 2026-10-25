@@ -1,0 +1,51 @@
+name: Tester feedback
+description: You tried the demo or ran it on ERPNext and want to tell me how it went
+title: "Feedback: "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. Please leave out real company names, prices and personal data.
+  - type: dropdown
+    id: how
+    attributes:
+      label: How did you try it?
+      options:
+        - Docker demo
+        - Python demo (erp-agents demo)
+        - On my own ERPNext, dry run
+        - On my own ERPNext, with approvals
+        - Only read the code and docs
+    validations:
+      required: true
+  - type: input
+    id: erpnext
+    attributes:
+      label: ERPNext version (if you used one)
+      placeholder: "v16.x, or none"
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What did the agent get wrong, or explain badly?
+  - type: textarea
+    id: ask
+    attributes:
+      label: What should an agent always ask you before acting?
+  - type: textarea
+    id: setup
+    attributes:
+      label: Which part of the setup was hardest?
+  - type: dropdown
+    id: live
+    attributes:
+      label: Would you run it on live data?
+      options:
+        - Yes, as it is
+        - Yes, after some changes (tell me which)
+        - Not yet
+        - No
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else

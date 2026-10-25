@@ -59,3 +59,23 @@ jobs:
           if scan '(gmail\.com|outlook\.com|yahoo\.com|192\.168\.[0-9]+\.[0-9]+|C:\\Users\\)' -- . ':!LICENSE' ':!src/erp_agents/packs/stock_procurement/tests/test_assistant.py' ':!tests/test_hardening.py' ':!src/erp_agents/packs/stock_procurement/tests/test_agents.py' ; then
             echo "Personal data or a machine address looks committed. Use placeholders."; exit 1
           fi
+
+  docker-demo:
+    name: Docker demo starts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t erpnext-ai-agents:demo .
+      - name: Start and check the console answers
+        run: |
+          docker run -d --name demo -p 127.0.0.1:8100:8100 erpnext-ai-agents:demo
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8100/ui/ || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          echo "console status: $code"
+          [ "$code" = "200" ] || { docker logs demo; exit 1; }
+          token=$(docker logs demo 2>&1 | grep -A1 "enter this access key" | tail -1 | tr -d ' ')
+          curl -sf -H "Authorization: Bearer $token" http://127.0.0.1:8100/api/v1/approvals | grep -q '"status":"pending"'
