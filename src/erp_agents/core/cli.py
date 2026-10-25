@@ -245,7 +245,7 @@ def cmd_mcp(args) -> int:
     try:
         from .mcp_server import build_mcp_server
     except ImportError:
-        print('The MCP server needs an extra package: pip install "erp-agents[agents]"', file=sys.stderr)
+        print('The MCP server needs an extra package: pip install "erpnext-ai-agents[agents]"', file=sys.stderr)
         return 2
     import anyio
     app = _app(args)

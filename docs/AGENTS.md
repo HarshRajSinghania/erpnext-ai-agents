@@ -57,7 +57,7 @@ Every call is checked against the caller's ERPNext-derived level, and logged (wh
 
 ## The MCP server
 
-Install the extra: `pip install "erp-agents[agents]"`.
+Install the extra: `pip install "erpnext-ai-agents[agents]"`.
 
 **Over stdio** (Claude Desktop and most desktop clients start it as a program):
 
@@ -147,7 +147,7 @@ Provider details that the clients take care of: Claude is sent no `temperature` 
 ## Turning it on
 
 ```bash
-pip install "erp-agents[agents]"
+pip install "erpnext-ai-agents[agents]"
 ollama pull llama3.1                       # any model with the "tools" capability
 erp-agents --config config/settings.erpnext.yaml agents status
 erp-agents --config config/settings.erpnext.yaml agents brief --rules      # the plain brief, no model

@@ -28,7 +28,7 @@ from .usage import month_start, summarize, token_summary
 
 log = logging.getLogger(__name__)
 
-INSTALL_HINT = 'The AI agents need an extra package: pip install "erp-agents[agents]".'
+INSTALL_HINT = 'The AI agents need an extra package: pip install "erpnext-ai-agents[agents]".'
 BUSY = "The assistant is busy with another task. Please try again in a minute."
 
 

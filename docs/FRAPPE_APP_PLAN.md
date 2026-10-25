@@ -107,7 +107,7 @@ They must never both run the stock pack against the same ERPNext site: each woul
 | **Translations** (`_()` around every user-visible string) | Frappe convention, wanted for a Marketplace app | all text is built in message modules, in English, in one place each |
 | **Current stable Frappe and ERPNext** support, with branching on `frappe.__version__` | a Marketplace requirement | tested live on ERPNext v16 only; v16's own Python requirement must be checked, and this project's CI matrix is 3.10 to 3.14 |
 | **App-specific CI**: a bench in GitHub Actions running `bench run-tests`, and Semgrep with Frappe's rules | a Marketplace requirement | CI exists for the standalone service (pytest, bandit, pip-audit, a secrets scan) and tests nothing Frappe-specific |
-| **Listing assets**: unique app name, 40 to 80 character description, long description without install steps, square logo (at least 200x200, no text), one category, support URL, privacy policy URL, a short demo video | the listing | the privacy statement is generated from code and tested (`core/agents/privacy.py`, [PRIVACY.md](PRIVACY.md)); everything else is missing; the repository name is undecided |
+| **Listing assets**: unique app name, 40 to 80 character description, long description without install steps, square logo (at least 200x200, no text), one category, support URL, privacy policy URL, a short demo video | the listing | the privacy statement is generated from code and tested (`core/agents/privacy.py`, [PRIVACY.md](PRIVACY.md)); everything else is missing; the repository is named `erpnext-ai-agents`, and the app's name on the Marketplace still has to be checked for uniqueness |
 
 ## 7. Marketplace review: what the reviewers check
 

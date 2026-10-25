@@ -1,7 +1,7 @@
 """The stock pack's tools on an MCP server, with typed signatures so every client sees the same parameters and descriptions as our own agents do.
 
 The core's `build_mcp_server` calls `register(server, run)` for each pack that is switched on; `run(name, args)` applies the core's checks (who is calling, the role, the pack
-being on, the argument rules) and returns the tool's result or raises a tool error. Needs the optional dependency: pip install "erp-agents[agents]".
+being on, the argument rules) and returns the tool's result or raises a tool error. Needs the optional dependency: pip install "erpnext-ai-agents[agents]".
 """
 from __future__ import annotations
 

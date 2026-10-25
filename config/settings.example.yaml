@@ -95,7 +95,7 @@ server:
   # docs: false                  # true publishes the interactive API documentation at /docs
 
 # ---------------------------------------------------------------- AI agents and the MCP server (optional; see docs/AGENTS.md and docs/PRIVACY.md)
-# Needs:  pip install "erp-agents[agents]"   and a model that supports tool calling, for example:  ollama pull llama3.1
+# Needs:  pip install "erpnext-ai-agents[agents]"   and a model that supports tool calling, for example:  ollama pull llama3.1
 # These are the starting values. The same choices are on the Settings > AI agents screen, which overrides this file.
 # agents:
 #   enabled: false               # nothing is sent to any model until this is true

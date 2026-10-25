@@ -1,4 +1,6 @@
-# Stock Assistant for ERPNext (erp-agents)
+# Stock Assistant for ERPNext (erpnext-ai-agents)
+
+Repository and package: `erpnext-ai-agents`. The command is `erp-agents` (also installed as `erpnext-ai-agents`); the Python package is `erp_agents`.
 
 An assistant for small-business ERP (ERPNext first). It watches stock and tells you early when you need to reorder - *including early warnings from past
 usage before any threshold is crossed* - compares your vendors (price, duties and taxes, delivery time, reliability) and prepares a purchase request.
@@ -582,7 +584,7 @@ Two agents sit on top of the rules, using the same seven tools that an MCP serve
 - the **inventory agent** writes the morning brief (what needs attention, in what order, anything odd);
 - the **purchasing agent** gives a second opinion on an order request and answers the questions the Ask page cannot place.
 
-They are **off by default** and need `pip install "erp-agents[agents]"` and a language model that you choose under **Settings > AI agents**: **a model on this computer** (Ollama, for example `ollama pull llama3.1`: free, nothing leaves your computer, slow without a graphics card) **or a hosted one** (Claude, OpenAI or Gemini: fast, billed per token; you add its key to the `.env` file and confirm that what the agents read is sent to it). Tokens used are shown per answer and per month, with an optional monthly limit. The agents are fenced: no tool orders, approves, pays or changes a setting; every number an agent writes must come from a tool's result or the answer is replaced by the plain-rules version; a person still presses Create order. What is sent to the model, and that it stays on your computer unless you allow otherwise, is on **Settings > AI agents** and in [docs/PRIVACY.md](docs/PRIVACY.md).
+They are **off by default** and need `pip install "erpnext-ai-agents[agents]"` and a language model that you choose under **Settings > AI agents**: **a model on this computer** (Ollama, for example `ollama pull llama3.1`: free, nothing leaves your computer, slow without a graphics card) **or a hosted one** (Claude, OpenAI or Gemini: fast, billed per token; you add its key to the `.env` file and confirm that what the agents read is sent to it). Tokens used are shown per answer and per month, with an optional monthly limit. The agents are fenced: no tool orders, approves, pays or changes a setting; every number an agent writes must come from a tool's result or the answer is replaced by the plain-rules version; a person still presses Create order. What is sent to the model, and that it stays on your computer unless you allow otherwise, is on **Settings > AI agents** and in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ```bash
 erp-agents --config config/settings.erpnext.yaml agents brief --rules     # today's brief by rules alone, no model

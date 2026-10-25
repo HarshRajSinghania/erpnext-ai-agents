@@ -74,7 +74,7 @@ Not in the 18 Oct list, and still open for a public release: the owner's decisio
    ```powershell
    git add -A
    git commit -m "Initial release: inventory monitor, vendor selector, approvals"
-   git remote add origin https://github.com/<you>/erp-agents.git
+   git remote add origin https://github.com/<you>/erpnext-ai-agents.git
    git push -u origin main
    ```
 4. **Protect `main`**: Settings > Branches > require the CI check before merging.

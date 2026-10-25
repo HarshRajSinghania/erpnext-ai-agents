@@ -15,7 +15,7 @@ authorization server that issues tokens for THIS server as their audience (RFC 8
 tokens instead, serves no discovery metadata, and is therefore private by design: it answers the server machine only, unless `mcp.remote: true` is set on purpose together with
 `mcp.allowed_hosts`. Do not describe it as MCP-OAuth interoperable. Over stdio the specification says to take credentials from the environment, which is what `mcp.stdio_role` does.
 
-Needs the optional dependency: pip install "erp-agents[agents]".
+Needs the optional dependency: pip install "erpnext-ai-agents[agents]".
 """
 from __future__ import annotations
 
