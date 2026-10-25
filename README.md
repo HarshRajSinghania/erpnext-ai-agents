@@ -10,6 +10,14 @@ ERP data, never from the model.
 
 It runs on a laptop or a small VPS and needs only open-source software (Python, SQLite, FastAPI, APScheduler). The core makes no LLM calls, so running costs are zero.
 
+![The console: a purchase order request with the reasons for the chosen vendor and the rejected ones](docs/img/demo.gif)
+
+**Early concept, feedback wanted.** I am looking for people who run ERPNext (or who want to see agentic design done with a person in charge) to try the demo and tell me what is wrong, missing or confusing. It takes about 30 minutes: [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md). Questions and ideas go to [Discussions](https://github.com/vivek-vpc/erpnext-ai-agents/discussions); problems to [Issues](https://github.com/vivek-vpc/erpnext-ai-agents/issues/new/choose).
+
+### How it fits together
+
+![Architecture: people and channels, gateway, six agents, MCP layer with 15 tools, human approval gate, ERPNext, vendors and audit log](docs/img/architecture.png)
+
 > **Status: beta. Licence: GPL-3.0-or-later.**
 >
 > - 1,264 passed and 1 skipped (a POSIX-only permission test) on Windows with Python 3.14, 25 Oct 2026, run against a demo ERP and fake transports (`python -m pytest`), plus `bandit` and `pip-audit`, which report nothing.
@@ -30,12 +38,39 @@ It runs on a laptop or a small VPS and needs only open-source software (Python, 
 
 ---
 
-## 1. Try it in 2 minutes (no ERPNext, no accounts)
+## 1. Try it (no ERPNext, no accounts)
 
-Windows PowerShell (Python 3.10+ from python.org):
+Pick one. All three use a built-in demo ERP with realistic stock, vendors and open orders, and send nothing anywhere.
+
+### A. Docker (about 3 minutes, any system)
+
+```bash
+git clone https://github.com/vivek-vpc/erpnext-ai-agents.git
+cd erpnext-ai-agents
+docker compose up --build
+```
+
+The log prints an access key. Open <http://127.0.0.1:8100/> and enter it. You will see stock alerts and reorder requests waiting for your OK. Press **Start reorder** on one, wait up to three minutes, and the assistant comes back with a purchase order showing why it chose this vendor and why it rejected the others.
+
+The demo port is published on `127.0.0.1` only. The start-up log warns that access keys are accepted "from anywhere"; that is deliberate here, because requests from your browser reach the container over the Docker network, and it stays safe because only your computer can reach the port. Stop with `Ctrl+C`; `docker compose down -v` also removes the demo data.
+
+### B. Linux or macOS (Python 3.10+)
+
+```bash
+git clone https://github.com/vivek-vpc/erpnext-ai-agents.git
+cd erpnext-ai-agents
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,agents]"
+erp-agents demo                    # 10 realistic scenarios in the terminal
+erp-agents demo --interactive      # answer the approval requests yourself
+python -m pytest                   # over 1,100 tests, no ERPNext needed
+```
+
+### C. Windows PowerShell (Python 3.10+ from python.org)
 
 ```powershell
-cd erp-agents
+git clone https://github.com/vivek-vpc/erpnext-ai-agents.git
+cd erpnext-ai-agents
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e ".[dev,agents]"
@@ -48,6 +83,8 @@ The demo covers: healthy stock, a plain threshold breach, a **usage surge** earl
 **seasonal** early warning, stock-out before the lead time, an open PO that arrives in time (no
 alert), an open PO that arrives too late, a brand-new item with little history, dead stock, and
 lumpy demand.
+
+Want to point it at your own ERPNext? Continue with section 4, and start with `erp-agents run-once --dry-run`.
 
 ## 2. What the agent decides, and why you can trust the explanation
 

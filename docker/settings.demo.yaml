@@ -1,0 +1,30 @@
+# Settings for the Docker demo: built-in demo ERP, console and inbox only.
+# The access key comes from the environment (the entrypoint makes one on first start and prints it).
+database:
+  path: ${ERP_AGENTS_DATA}/erp_agents.db
+
+erp:
+  type: mock
+
+channels:
+  console: { enabled: true }
+  inbox: { enabled: true }
+
+approvals:
+  strategy: all
+  recipients:
+    - id: owner
+      name: Owner
+      roles: [admin, approver]
+      channels: [{ type: console }, { type: inbox }]
+
+auth:
+  # Requests from the host reach the container from the Docker network, not from "this machine", so the key must be accepted
+  # from there. docker-compose.yml publishes the port on 127.0.0.1 only, so only you can reach it.
+  access_keys: anywhere
+  tokens:
+    - { token: "${ERP_AGENTS_OWNER_TOKEN}", user: owner, roles: [admin, approver] }
+
+server:
+  host: 0.0.0.0
+  port: 8100

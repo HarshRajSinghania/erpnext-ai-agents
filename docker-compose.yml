@@ -1,0 +1,19 @@
+# docker compose up --build      then open http://127.0.0.1:8100/ and use the access key printed in the log
+services:
+  stock-assistant:
+    build: .
+    image: erpnext-ai-agents:demo
+    ports:
+      - "127.0.0.1:8100:8100"     # reachable from this computer only
+    volumes:
+      - assistant-data:/data
+      # To try it on your own ERPNext instead of the demo ERP, copy config/settings.example.yaml, set erp.type: erpnext,
+      # and mount it like this (put the keys in a .env file next to this one; see .env.example):
+      # - ./my-settings.yaml:/app/settings.yaml:ro
+    # env_file: .env
+    # environment:
+    #   ERP_AGENTS_CONFIG: /app/settings.yaml
+    restart: unless-stopped
+
+volumes:
+  assistant-data:
