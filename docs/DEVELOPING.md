@@ -153,6 +153,7 @@ A pack is a folder under `src/erp_agents/packs/` that adds one area (sales, fina
    | `cli_commands()` / `agent_actions()` | add `erp-agents <command>` and `erp-agents agents <action>`; start a handler with `pack_app(args, <name>)`, which explains when the pack is off |
    | `jobs(scheduler)` / `on_settings_change(...)` | add scheduled work; a job returns at once when `app.packs.is_enabled(<name>)` is false |
    | `web_dir()` | a folder with an `index.html` the core serves as the console |
+   | in `setup(app)`: `app.history.extras`, `app.history.reason_headings` | what the decision history shows with one of your requests (the record behind it), and which of your section headings say why |
 
 4. **Rules the core enforces for you.** Do not re-implement them, and do not try to bypass them:
    * Role checks on every tool call, the order gate for `prepare` tools, the grounding check on every agent answer and the switch all live in the core. A job that offers a `prepare` tool without a gate does not start.

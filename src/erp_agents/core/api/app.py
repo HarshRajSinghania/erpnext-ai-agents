@@ -340,6 +340,44 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
             raise HTTPException(code, result.message)
         return result.model_dump(mode="json")
 
+    # ------------------------------------------------------------------ "Why did you do that?": the decision history (history.py) and its seal (audit.py)
+    def history_filters(q: str, kind: Optional[str], item: Optional[str], who: Optional[str], since: Optional[str], until: Optional[str], status: Optional[str]) -> dict:
+        return {"q": q, "kind": kind, "item": item, "who": who, "since": since, "until": until, "status": status}
+
+    @api.get("/api/v1/history")
+    def history(q: str = Query("", max_length=200), kind: Optional[str] = Query(None, max_length=60), item: Optional[str] = Query(None, max_length=140),
+                who: Optional[str] = Query(None, max_length=140), since: Optional[str] = None, until: Optional[str] = None, status: Optional[str] = Query(None, max_length=20),
+                limit: int = Query(50, ge=1, le=MAX_LIST_LIMIT), offset: int = Query(0, ge=0), _: Actor = Depends(require("approver"))) -> dict:
+        """Every past decision with its reasoning, newest first: requests the program raised and how they were answered, and changes of settings. Words must all appear."""
+        try:
+            return ctx.history.search(limit=limit, offset=offset, **history_filters(q, kind, item, who, since, until, status))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
+    @api.get("/api/v1/history.csv")
+    def history_csv(q: str = Query("", max_length=200), kind: Optional[str] = Query(None, max_length=60), item: Optional[str] = Query(None, max_length=140),
+                    who: Optional[str] = Query(None, max_length=140), since: Optional[str] = None, until: Optional[str] = None, status: Optional[str] = Query(None, max_length=20),
+                    _: Actor = Depends(require("approver"))) -> PlainTextResponse:
+        try:
+            text = ctx.history.csv(**history_filters(q, kind, item, who, since, until, status))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        return PlainTextResponse(text, media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="decision-history.csv"'})
+
+    @api.get("/api/v1/history/verify")
+    def history_verify(_: Actor = Depends(require("admin"))) -> dict:
+        """Is the decision history as it was sealed? Lists any request or settings change changed or deleted afterwards."""
+        ctx.audit.sweep()
+        return ctx.audit.verify()
+
+    @api.get("/api/v1/history/{approval_id}")
+    def history_entry(approval_id: str, _: Actor = Depends(require("approver"))) -> dict:
+        """One decision in full: everything the person saw, the answer, what came of it, earlier versions, the AI's work on it, and what the packs add."""
+        out = ctx.history.entry(approval_id)
+        if out is None:
+            raise HTTPException(404, "not found")
+        return out
+
     # ------------------------------------------------------------------ packs: each one that is switched on adds its routes (and may bring the console)
     deps = SimpleNamespace(require=require, MAX_LIST_LIMIT=MAX_LIST_LIMIT)
 

@@ -56,6 +56,11 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("substitutes", "The approved alternatives of ONE item (as listed in the ERP) and how much of each is in stock.", {"item_code": ITEM}, ("item_code",), "viewer", READ),
     ToolSpec("stock_counts", "Cycle counts: 'plan' = which items to count this week and why; 'variances' = recent count differences with what explains them.",
              {"kind": {"type": "string", "enum": ["plan", "variances"], "description": "Default plan"}}, (), "viewer", READ),
+    ToolSpec("decision_history", "Past decisions and why they were made: each request the assistant raised (stock alerts, reorders, purchase requests, reminders ...), "
+                                 "the reasons it gave, how it was answered and what came of it, and changes of settings. Newest first. Use it to answer 'why did you ...?'.",
+             {"query": {"type": "string", "maxLength": 200, "description": "Words that must all appear, e.g. an item code, a vendor or an order number"},
+              "item_code": ITEM, "days": {"type": "integer", "description": "How many days back, 1 to 730 (default 90)"},
+              "limit": {"type": "integer", "description": "How many decisions, at most 10 (default 5)"}}, (), "viewer", READ),
     ToolSpec("prepare_quote_request", "Prepare a request to ask two or three vendors for a price on ONE item, for a person to approve. It messages NO vendor by itself: a person "
                                       "presses Send requests. Use it only when a person has asked for prices or quotes.",
              {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity to price; leave out to use the suggested quantity"},
@@ -333,3 +338,13 @@ class StockTools:
         if res["status"] == "refused":
             return {"status": "refused", "error": res["error"], "note": "nothing was prepared"}
         return {k: res.get(k) for k in ("status", "round", "approval_id", "vendors", "cannot_ask", "reply_by", "note") if res.get(k) is not None} | {"item_code": item.code, "qty": _r(qty)}
+
+    def _decision_history(self, actor: Actor, query: str = "", item_code: Optional[str] = None, days: int = 90, limit: int = 5) -> dict[str, Any]:
+        """For an agent: what the record says, with the people left out (who answered is "a person")."""
+        days, limit = max(1, min(int(days or 90), 730)), max(1, min(int(limit or 5), 10))
+        since = (self.app.inventory.today() - timedelta(days=days)).isoformat()
+        res = self.app.history.search(q=_clip(query or "", 200), item=item_code or None, since=since, limit=limit, for_model=True)
+        return {"days": days, "found": res["total"], "listed": res["listed"], "note": "As recorded at the time; numbers are those of that day.",
+                "decisions": [{"when": e["at"][:16], "what": _clip(e["what"], 120), "title": _clip(e["title"], 160), "status": e["status"], "answer": e["answer"],
+                               "via": e["answered_via"], "outcome": _clip(e["outcome"], 240), "why": [_clip(w, 220) for w in e["why"]][:3], "request_id": e["id"]}
+                              for e in res["entries"]]}

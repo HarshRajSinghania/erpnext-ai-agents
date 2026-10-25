@@ -53,6 +53,7 @@ class StockProcurementPack(Pack):
         chat = ChatService(app.erp, inventory, procurement, proposals, app.approvals, app.settings, app.db, app.clock)
         app.services.update(alerts=alerts, inventory=inventory, proposals=proposals, procurement=procurement, assistant=assistant, chat=chat)
         app.services.update(followup=FollowUp(app), stock_insight=StockInsight(app))
+        self._history_context(app)
         app.reschedule_scopes = (*(getattr(app, "reschedule_scopes", None) or ()), "followup")     # changing the follow-up times takes effect without a restart
         inventory.extra_sections.append(app.services["stock_insight"].substitutes.section)       # an approved alternative, when an item is short and cannot come in time
         app.approvals.unknown_sender_handlers.append(app.services["followup"].messenger.take_reply)  # a vendor answering on WhatsApp
@@ -100,6 +101,28 @@ class StockProcurementPack(Pack):
     def mcp_instructions(self) -> str:
         from .mcp_tools import INSTRUCTIONS
         return INSTRUCTIONS
+
+
+    @staticmethod
+    def _history_context(app: Any) -> None:
+        """What the decision history shows with one of this pack's requests: the purchase request behind it, and the messages sent to vendors (never their address)."""
+        app.history.reason_headings.update(("what does not match", "before you pay", "suggested action", "prices quoted", "who would be asked", "items", "count these"))
+
+        def context(rec: Any) -> list[dict[str, Any]]:
+            out = []
+            prop = app.proposals.by_approval(rec.id)
+            if prop is not None:
+                out.append({"heading": "Purchase request", "lines": [f"Vendor {prop.supplier_name or '-'}, {prop.qty or 0:g} at {prop.rate or 0:,.2f}, total {prop.total or 0:,.2f}; "
+                                                                     f"status {prop.status}" + (f", order {prop.po_name}" if prop.po_name else "") + (f" ({prop.status_note})" if prop.status_note else "") + "."]})
+            sent = app.db.query("SELECT supplier, channel, status, error, sent_at FROM vendor_messages WHERE approval_id=? ORDER BY sent_at", (rec.id,))
+            if sent:
+                out.append({"heading": "Messages to vendors", "lines": [f"{r['sent_at'][:16].replace('T', ' ')}: to {r['supplier']} by {r['channel']}, {r['status']}"
+                                                                        + (f" ({r['error']})" if r["error"] else "") for r in sent]})
+            replies = app.db.query("SELECT r.supplier, r.text, r.received_at FROM vendor_replies r JOIN vendor_messages m ON m.id = r.message_id WHERE m.approval_id=? ORDER BY r.id", (rec.id,))
+            if replies:
+                out.append({"heading": "Vendor replies (their words)", "lines": [f"{r['received_at'][:16].replace('T', ' ')} {r['supplier']}: \"{r['text']}\"" for r in replies]})
+            return out
+        app.history.extras.append(context)
 
 
 PACK = StockProcurementPack()

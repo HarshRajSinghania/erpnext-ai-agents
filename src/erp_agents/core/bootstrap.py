@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .audit import AuditChain
+from .history import DecisionHistory
 from .agents.service import AgentService
 from .agents.store import AgentLog
 from .api.hardening import MIN_KEY_LENGTH, access_key_warning, weak_key
@@ -54,6 +56,8 @@ class App:
     agents: Optional[Any] = None                    # the AI agents (agents/service.py); the optional 'agents' dependencies are only needed when one runs
     services: dict[str, Any] = field(default_factory=dict)      # what the packs that are switched on provide, by name
     reschedule_scopes: tuple[str, ...] = ()        # settings sections whose change reschedules the packs' jobs (besides system and agents)
+    audit: Optional[Any] = None                     # the seal over the decision history (audit.py)
+    history: Optional[Any] = None                   # "Why did you do that?": every past decision with its reasoning (history.py)
 
     def __getattr__(self, name: str) -> Any:
         # reached only when the application itself has no such attribute: a service a pack provided
@@ -141,9 +145,17 @@ def build_app(
     app.toolkit = Toolkit(app, log_call=app.agent_log.log_tool)
     app.toolkit.is_enabled = packs.is_enabled      # a pack that is switched off answers nothing, at once
     app.agents = AgentService(app)                 # the optional 'mcp' package is only needed when an agent actually runs
+    app.audit = AuditChain(db, clock)
+    app.history = DecisionHistory(app)
+    approvals.on_closed.append(app.audit.sweep)    # each answer, expiry or cancellation is sealed at once
+    settings.on_change(app.audit.sweep)            # and so is each change of settings
     _set_up_packs(app)
     settings.ignore_unknown_system = any(not packs.is_enabled(n) for n, m in packs.manifests.items() if m.status != "skeleton")
     settings.validate()                            # the values in the settings file are checked once every pack has said which fields it adds
+    try:
+        app.audit.sweep()                          # what was closed before (or while the application was stopped) is sealed now
+    except Exception:  # noqa: BLE001 - a seal that cannot be written must not stop the application; `history --verify` reports what is not sealed
+        log.exception("could not seal the decision history")
     return app
 
 

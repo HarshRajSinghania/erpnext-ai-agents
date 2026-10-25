@@ -49,6 +49,8 @@ class AgentScheduler:
         try:
             svc = self.app.approvals
             expired, reminded, retried = svc.expire_due(), svc.remind_due(), svc.retry_failed_deliveries()
+            if self.app.audit is not None:
+                self.app.audit.sweep()                   # anything closed that a failed seal missed
             if expired or reminded or retried:
                 log.info("approvals: expired=%d reminded=%d redelivered=%d", len(expired), len(reminded), retried)
         except Exception:  # noqa: BLE001

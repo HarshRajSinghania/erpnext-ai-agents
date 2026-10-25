@@ -10,7 +10,7 @@ Items, stock levels and stock values, warehouses, delivery and sales quantities 
 
 ## What it keeps
 
-On the machine that runs it (a SQLite file, `database.path`): its settings, the approval requests and who answered them, alerts, a log of questions asked to the assistant, and, for the AI agents, a record of every task and tool call (see below). Nothing is copied to the developers.
+On the machine that runs it (a SQLite file, `database.path`): its settings, the approval requests and who answered them (kept as the decision history, with a tamper-evident seal; requests are never deleted, so the history goes back to the first one; when an AI agent reads the history it is told "a person", never who), alerts, a log of questions asked to the assistant, and, for the AI agents, a record of every task and tool call (see below). Nothing is copied to the developers.
 
 ## What leaves the machine, by feature
 

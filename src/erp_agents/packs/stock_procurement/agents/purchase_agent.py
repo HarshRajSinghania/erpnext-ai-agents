@@ -17,8 +17,10 @@ from erp_agents.core.agents.runtime import FINAL_REQUEST, AgentJob, Evidence, To
 
 AGENT = "purchasing"
 REVIEW_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests")
-ASK_PURCHASING_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "late_deliveries", "receipt_mismatches", "vendor_scorecard")
-ASK_INVENTORY_TOOLS = ("stock_overview", "stock_status", "usage_history", "open_orders", "waiting_requests", "demand_forecast", "slow_stock", "substitutes", "stock_counts")
+ASK_PURCHASING_TOOLS = ("stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "late_deliveries", "receipt_mismatches", "vendor_scorecard",
+                        "decision_history")
+ASK_INVENTORY_TOOLS = ("stock_overview", "stock_status", "usage_history", "open_orders", "waiting_requests", "demand_forecast", "slow_stock", "substitutes", "stock_counts",
+                       "decision_history")
 PREPARE = "prepare_order_request"
 QUOTE = "prepare_quote_request"
 QUOTE_ASK = re.compile(r"\b(rfq|request for quotation|(ask|get|request|send|collect)\b.{0,40}\b(quotes?|quotations?|prices?|offers?))\b", re.I)

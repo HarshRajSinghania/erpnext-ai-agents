@@ -55,6 +55,7 @@ class ApprovalService:
         # a message from someone who is not a registered person (for example a vendor answering a pack's message): each handler gets (event, channel) and returns
         # True when it took the message; it must treat the text as untrusted data and never act on it. None take it = the sender is told they are not registered.
         self.unknown_sender_handlers: list[Callable[[Any, Any], bool]] = []
+        self.on_closed: list[Callable[[], None]] = []                       # told after any request was answered, expired, cancelled or replaced (the audit seal)
 
     def register_handler(self, kind: str, handler: KindHandler) -> None:
         self._handlers[kind] = handler
@@ -256,9 +257,17 @@ class ApprovalService:
         self._notify_outcome(final, text)
         if self._outcome_detail(final):
             self._announce_outcome(final, text, channel, address)
+        self._closed()
         for listener in self.on_decided:
             self._later(lambda listener=listener: self._tell_listener(listener, final))
         return DecisionResult(ok=True, status="decided", message=text, approval=final)
+
+    def _closed(self) -> None:
+        for listener in self.on_closed:
+            try:
+                listener()
+            except Exception:  # noqa: BLE001 - sealing must never undo an answer; the maintenance job seals what was missed
+                log.exception("a listener of closed requests failed")
 
     @staticmethod
     def _tell_listener(listener: Callable[[ApprovalRecord], None], record: ApprovalRecord) -> None:
@@ -307,6 +316,7 @@ class ApprovalService:
 
     def finish_supersede(self, old_id: str, new: ApprovalRecord) -> None:
         old = self.get(old_id)
+        self._closed()
         if old is not None:
             self._notify_outcome(old, self.outcome_text(old))            # the old request is marked cancelled first
         self._later(lambda: self.deliver(new))                           # then the new one is sent: after the person's reply if the caller asked for that
@@ -317,6 +327,7 @@ class ApprovalService:
             if cur.rowcount != 1:
                 return False
         rec = self.get(approval_id)
+        self._closed()
         h = self._handlers.get(rec.kind)
         if h and h.on_cancelled:
             h.on_cancelled(rec)
@@ -338,6 +349,8 @@ class ApprovalService:
                 h.on_expired(rec)
             self._notify_outcome(rec, self.outcome_text(rec))
             expired.append(rec.id)
+        if expired:
+            self._closed()
         return expired
 
     def remind_due(self) -> list[str]:

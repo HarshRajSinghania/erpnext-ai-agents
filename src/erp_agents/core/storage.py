@@ -127,6 +127,20 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 CREATE INDEX IF NOT EXISTS ix_agent_tasks_agent ON agent_tasks(agent, started_at);
 CREATE INDEX IF NOT EXISTS ix_agent_tasks_approval ON agent_tasks(approval_id);
 
+-- the seal over the decision history (core/audit.py): one row per closed request or settings change, each hash over the one before. Only ever appended to.
+-- A new table that changes no other: it needs no schema version of its own (an older version of the application simply does not use it).
+CREATE TABLE IF NOT EXISTS audit_chain (
+    seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+    at       TEXT NOT NULL,
+    source   TEXT NOT NULL,              -- approval | setting
+    ref_id   TEXT NOT NULL,
+    event    TEXT NOT NULL,              -- decided | expired | cancelled | changed | sealed (closed before the chain existed)
+    digest   TEXT NOT NULL,              -- sha256 of the record as it was
+    prev     TEXT NOT NULL,
+    hash     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_audit_chain_ref ON audit_chain(source, ref_id);
+
 CREATE TABLE IF NOT EXISTS tool_calls (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     at        TEXT NOT NULL,

@@ -9,13 +9,13 @@ a part of the program.
 
 | Where | What |
 |---|---|
-| `manifest.yaml` | the declaration: 15 tools, the ERPNext roles and permissions it needs, 14 kinds of approval request and what answering them may create, the settings it adds, what an agent may send to a language model. The privacy statement, `erp-agents erp-check-access` and the sign-in defaults are built from it |
+| `manifest.yaml` | the declaration: 16 tools, the ERPNext roles and permissions it needs, 14 kinds of approval request and what answering them may create, the settings it adds, what an agent may send to a language model. The privacy statement, `erp-agents erp-check-access` and the sign-in defaults are built from it |
 | `pack.py` | `PACK`, the entry object the core loads. `setup(app)` builds the services and registers them with the core; the other hooks add routes, commands, scheduled work and MCP tools |
 | `inventory/` | the stock analysis (maths in `analysis.py`), its plain-English messages, the alert repository and the daily check |
 | `procurement/` | vendor scoring (`scoring.py`), taxes and duties, proposals, the procurement pass that turns an approved reorder into a purchase request |
 | `assistant/` | the chat (`chat.py`), "Ask why" (`service.py`) and the Telegram / WhatsApp conversation (`conversation.py`) |
 | `agents/` | the inventory and purchasing agents' prompts, checks and tasks (`tasks.py`), run by the core's agent runtime |
-| `tools.py`, `mcp_tools.py` | the fifteen tools (thirteen read; `prepare_order_request` and `prepare_quote_request` prepare an approval) and their typed form for MCP |
+| `tools.py`, `mcp_tools.py` | the sixteen tools (fourteen read, among them `decision_history`; `prepare_order_request` and `prepare_quote_request` prepare an approval) and their typed form for MCP |
 | `followup/` | purchasing follow-up: chasing late deliveries, goods receipt checks, the vendor scorecard, quote rounds, and the messenger that reaches vendors (only after a person presses Send) |
 | `inventory/forecast.py`, `slow_stock.py`, `substitutes.py`, `counts.py` | stock intelligence: the forecast order point, slow and dead stock, approved substitutes, cycle counts |
 | `settings.py`, `schema.py` | the settings sections (`policy`, `procurement`, `calendar` and the stock fields of `system`) and the database tables this pack owns, with a schema version |

@@ -18,7 +18,7 @@ def kit(make_app, clock):
 
 def test_every_tool_has_a_description_and_a_schema_that_names_its_required_fields():
     assert [t.name for t in TOOLS] == ["stock_overview", "stock_status", "usage_history", "vendor_options", "open_orders", "waiting_requests", "prepare_order_request",
-                                       "late_deliveries", "receipt_mismatches", "vendor_scorecard", "demand_forecast", "slow_stock", "substitutes", "stock_counts",
+                                       "late_deliveries", "receipt_mismatches", "vendor_scorecard", "demand_forecast", "slow_stock", "substitutes", "stock_counts", "decision_history",
                                        "prepare_quote_request"]
     for t in TOOLS:
         schema = t.input_schema()

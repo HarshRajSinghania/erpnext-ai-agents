@@ -84,6 +84,11 @@ def register(server: MCPServer, run: Any) -> None:
     async def stock_counts(kind: Annotated[Literal["plan", "variances"], _d("stock_counts", "kind")] = "plan") -> dict[str, Any]:
         return await run("stock_counts", {"kind": kind})
 
+    @server.tool(name="decision_history", description=SPEC["decision_history"].description, annotations=READ_ONLY)
+    async def decision_history(query: Annotated[str, _d("decision_history", "query")] = "", item_code: Annotated[Optional[str], _d("decision_history", "item_code")] = None,
+                               days: Annotated[int, _d("decision_history", "days")] = 90, limit: Annotated[int, _d("decision_history", "limit")] = 5) -> dict[str, Any]:
+        return await run("decision_history", {"query": query, "item_code": item_code, "days": days, "limit": limit})
+
     @server.tool(name="prepare_quote_request", description=SPEC["prepare_quote_request"].description, annotations=PREPARES)
     async def prepare_quote_request(item_code: Annotated[str, _d("prepare_quote_request", "item_code")], reason: Annotated[str, _d("prepare_quote_request", "reason")],
                                     qty: Annotated[Optional[float], _d("prepare_quote_request", "qty")] = None) -> dict[str, Any]:

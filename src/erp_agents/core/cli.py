@@ -81,6 +81,43 @@ def cmd_approvals(args) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_history(args) -> int:
+    """"Why did you do that?": search the decision history, show one decision in full, export it, or check its seal."""
+    app = _app(args)
+    if args.verify:
+        app.audit.sweep()
+        res = app.audit.verify()
+        print(f"{'OK' if res['ok'] else 'PROBLEMS FOUND'}: {res['entries']} sealed entries, latest {res['latest_at'] or '-'}")
+        print(f"latest hash: {res['latest_hash']}  (keep a copy somewhere else: a later check can then prove nothing before it was rewritten)")
+        for p in res["problems"]:
+            print(f"  - {p}")
+        return 0 if res["ok"] else 1
+    if args.show:
+        e = app.history.entry(args.show)
+        if e is None:
+            print(f"No request {args.show}.")
+            return 1
+        print(json.dumps(e, indent=2, default=str))
+        return 0
+    filters = {"q": " ".join(args.words or []), "kind": args.kind, "item": args.item, "who": args.who, "since": args.since, "until": args.until, "status": args.status}
+    try:
+        if args.csv:
+            Path(args.csv).write_text(app.history.csv(**filters), encoding="utf-8", newline="")
+            print(f"Written to {args.csv}")
+            return 0
+        res = app.history.search(limit=args.limit, **filters)
+    except ValueError as exc:
+        print(exc)
+        return 2
+    print(f"{res['total']} decision{'s' if res['total'] != 1 else ''}" + (f", newest {res['listed']} shown" if res["listed"] < res["total"] else ""))
+    for e in res["entries"]:
+        print(f"\n{e['at'][:16].replace('T', ' ')}  {e['id']}  {e['title']}")
+        print(f"   {e['outcome']}")
+        for line in e["why"][:3]:
+            print(f"   why: {line}")
+    return 0
+
+
 def cmd_erp_check(args) -> int:
     app = _app(args)
     print("healthcheck:", "OK" if app.erp.healthcheck() else "FAILED")
@@ -393,6 +430,19 @@ def build_parser() -> argparse.ArgumentParser:
     dc.add_argument("choice", help="approve | snooze | dismiss | details")
     s.set_defaults(fn=cmd_approvals)
 
+    s = sub.add_parser("history", help="why did you do that? search every past decision with its reasoning, show one, export it, check its seal")
+    s.add_argument("words", nargs="*", help="words that must all appear (item codes, vendor names, order numbers ...)")
+    s.add_argument("--item", help="only this item code")
+    s.add_argument("--kind", help="only this kind of request, e.g. procurement.po")
+    s.add_argument("--who", help="only decisions by this person")
+    s.add_argument("--since", help="from this day (YYYY-MM-DD)")
+    s.add_argument("--until", help="up to and including this day (YYYY-MM-DD)")
+    s.add_argument("--status", choices=["pending", "decided", "expired", "cancelled", "changed"])
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--show", metavar="ID", help="one request in full")
+    s.add_argument("--csv", metavar="FILE", help="write the result to a CSV file")
+    s.add_argument("--verify", action="store_true", help="check that nothing was changed or deleted after it was sealed")
+    s.set_defaults(fn=cmd_history, leftovers="words")
     s = sub.add_parser("erp-check", help="test the ERP connection and print sample stock")
     s.set_defaults(fn=cmd_erp_check)
 

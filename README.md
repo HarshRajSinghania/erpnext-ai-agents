@@ -633,6 +633,38 @@ default), `GET /api/v1/inventory/forecast/{item} | slow-stock | substitutes/{ite
 (`tests/test_erpnext_followup.py`). Before relying on it: check that a test e-mail from ERPNext arrives, run `erp-agents followup late` and compare with your open
 purchase orders, and look at one receipt check by hand.
 
+## 8h. "Why did you do that?": the decision history
+
+Every past decision, with its reasoning, searchable, as an audit trail:
+
+* **every request the program raised** (stock alerts, reorder suggestions, purchase requests, late-delivery reminders, receipt checks, quote comparisons ...), exactly as the
+  person saw it: its reasons and details are stored with it and never rewritten;
+* **how it ended**: which button, who pressed it, from which channel and when, and what came of it (for example the draft purchase order's number); or that it expired,
+  was cancelled or was replaced by a revised version (with the reason);
+* **every change of settings**: who changed which value, from what, to what;
+* with each request, in full view: the earlier and later versions of it, what followed from it (managing the order), the AI agents' work on it (a second opinion, a
+  request an agent prepared), where it was sent (channel, not the address) and, from the stock pack, the purchase request behind it and the messages sent to vendors.
+
+Search with words that must all appear (an item code, a vendor, an order number), the kind of request, the item, who answered, a date range or the outcome.
+
+```
+erp-agents history BOLT-M8                       # every decision about BOLT-M8, newest first, with why
+erp-agents history Prime --since 2026-10-01      # all words must appear; dates are YYYY-MM-DD
+erp-agents history --show <request id>           # one decision in full
+erp-agents history --who priya --csv audit.csv   # export for an auditor or a spreadsheet
+erp-agents history --verify                      # has anything been changed or deleted since it was sealed?
+```
+
+REST (approvers): `GET /api/v1/history?q=&item=&kind=&who=&since=&until=&status=`, `GET /api/v1/history/{id}`, `GET /api/v1/history.csv`; `GET /api/v1/history/verify`
+(administrators). The AI agents have it as the `decision_history` tool, so you can ask "why did you suggest ordering BOLT-M8 from Prime last week?" and get the reasons that
+were given at the time. **The agents never see who decided**: they are told "a person", and names are taken out of the text.
+
+**The seal.** Each request is sealed the moment it is answered, expires or is cancelled, and each change of settings when it is made: its content goes into a hash chain
+(`audit_chain`), each entry over the one before. `--verify` recomputes the chain and every sealed record, and names any record that was changed or deleted afterwards and
+any break in the chain. Decisions from before this version are sealed the first time it starts. This shows a change; it cannot prevent one: someone who can write to the
+database file can rewrite the chain as well. For proof that holds up against that, keep backups and copy the latest hash that `--verify` prints somewhere the database
+cannot reach (an e-mail to yourself, a note in ERPNext).
+
 ## 9. Known limitations / next steps
 
 - Vendor prices are the latest order rate in company currency (the order's base rate, so foreign and domestic vendors

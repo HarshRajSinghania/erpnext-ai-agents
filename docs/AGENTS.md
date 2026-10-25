@@ -50,6 +50,7 @@ All seven are defined in the stock pack ([`src/erp_agents/packs/stock_procuremen
 | `slow_stock(limit?)` | look | Dead and slow stock, the cash tied up and a suggested action |
 | `substitutes(item_code)` | look | The approved alternatives listed in ERPNext and their stock |
 | `stock_counts(kind?)` | look | This week's count list, or recent count differences with what explains them |
+| `decision_history(query?, item_code?, days?, limit?)` | look | Past decisions and why: what each request said, which button ended it and what came of it, and settings changes. Never who answered: "a person" |
 | `prepare_quote_request(item_code, reason, qty?)` | approvers | Prepares a request to ask two or three vendors for a price. Messages no vendor: a person presses Send requests |
 
 Every call is checked against the caller's ERPNext-derived level, and logged (who, how, which tool, which arguments, whether it worked) in `tool_calls`. Results are capped at 7,000 characters. Numbers sent as text by a small model (`"500"`, `"1,200"`) are accepted; a wrong value is an error the model can read and correct.
