@@ -22,7 +22,10 @@ from typing import Any, Optional
 
 from .storage import SCHEMA, SCHEMA_VERSION
 
-REQUIRED_TABLES = tuple(t for t in dict.fromkeys(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA)) if t != "pack_schema")      # pack_schema is made when the file is opened
+# Tables that are made when the file is opened, so a complete database (or backup) from a version before them simply does not have them yet:
+# pack_schema, and audit_chain (the decision history's seal: it seals the older decisions on the first start).
+MADE_ON_OPEN = ("pack_schema", "audit_chain")
+REQUIRED_TABLES = tuple(t for t in dict.fromkeys(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA)) if t not in MADE_ON_OPEN)
 
 
 class AlreadyRunning(RuntimeError):

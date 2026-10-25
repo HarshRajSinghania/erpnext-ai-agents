@@ -224,3 +224,19 @@ def test_both_layers_keep_people_out_of_what_a_model_sees(world):
     rec = app.approvals.get(ids["po"])
     assert "priya" not in app.history.outcome(rec, with_people=False) and "by a person" in app.history.outcome(rec, with_people=False)   # the outcome is written without them
     assert app.history._scrub([{"x": "changed by priya@acme.example via app"}]) == [{"x": "changed by a person via app"}]                 # and any name left in the text is taken out
+
+
+def test_a_database_from_before_the_seal_is_complete_and_gets_the_seal_when_opened(tmp_path):
+    from erp_agents.core import ops
+    from erp_agents.core.storage import Database
+    path = tmp_path / "before.db"
+    Database(str(path)).close()
+    c = sqlite3.connect(path)
+    c.execute("DROP TABLE audit_chain")                                                                          # as a version before the seal left it
+    c.commit()
+    c.close()
+    assert ops.verify_database(str(path)).ok                                                                    # doctor and backup-verify do not call it damaged
+    Database(str(path)).close()
+    c = sqlite3.connect(path)
+    assert c.execute("SELECT 1 FROM sqlite_master WHERE name='audit_chain'").fetchone()                         # opening it adds the table
+    c.close()
