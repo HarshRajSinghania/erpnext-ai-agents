@@ -942,16 +942,26 @@ function cfgSeasons(el) {
             <div class="field"><label for="ce_kind">What kind</label><select id="ce_kind" class="in"><option value="promotion">Promotion</option><option value="festival">Festival</option><option value="other">Other</option></select></div>
             <div class="field"><label for="ce_start">First day</label><input id="ce_start" class="in" type="date" value="${today}"></div><div class="field"><label for="ce_end">Last day</label><input id="ce_end" class="in" type="date" value="${today}"></div>
             <div class="field"><label for="ce_pct">Sales change (%)</label><input id="ce_pct" class="in num" type="number" step="any" placeholder="40"><small>+40 means 40% more. −20 means 20% fewer.</small></div>
-            <div class="field"><label for="ce_groups">Which items</label><input id="ce_groups" class="in" list="ce_gl" placeholder="${esc(groups[0] || "Fasteners")}"><datalist id="ce_gl">${groups.map(g => `<option value="${esc(g)}">`).join("")}</datalist><small>Item groups or item codes, separated by commas. Leave empty for everything.</small></div></div>
+            <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend style="font-weight:700;margin-bottom:6px">Which item groups</legend>
+              <div id="ce_groups" style="display:flex;flex-wrap:wrap;gap:8px 20px">${groups.map(g => `<label class="check" style="align-items:center;gap:8px"><input type="checkbox" value="${esc(g)}" data-grp><span>${esc(g)}</span></label>`).join("") || `<span class="muted small">No item groups found in ERPNext.</span>`}</div>
+              <div class="btns" style="margin-top:8px"><button type="button" class="btn sm" id="ce_all">Tick all</button><button type="button" class="btn sm" id="ce_none">Clear</button></div>
+              <small>Tick every group whose sales the season changes; tick as many as you need. Tick none (and give no items below) for everything.</small></fieldset>
+            <div class="field" style="grid-column:1/-1"><label for="ce_items">And these single items (optional)</label><input id="ce_items" class="in" placeholder="${esc((state.items[0] || {}).item_code || "FAS-0003")}, ..."><small>Item codes, separated by commas, for items outside the groups you ticked.</small></div></div>
           <div class="field" style="margin-top:14px"><label for="ce_note">Note (only for you)</label><input id="ce_note" class="in" maxlength="300"></div><div class="btns" style="margin-top:14px"><button class="btn" id="ceadd">Add this season</button></div></div></div></section>${saveBar("calsave")}`;
     $("#calon", el).addEventListener("change", e => { enabled = e.target.checked; dirty("calsave", "They apply from the next stock check."); });
     $$("[data-rm]", el).forEach(b => b.addEventListener("click", () => { events.splice(Number(b.dataset.rm), 1); draw(); dirty("calsave", "They apply from the next stock check."); }));
+    $("#ce_all", el).addEventListener("click", () => $$("[data-grp]", el).forEach(c => { c.checked = true; }));
+    $("#ce_none", el).addEventListener("click", () => $$("[data-grp]", el).forEach(c => { c.checked = false; }));
     $("#ceadd", el).addEventListener("click", () => {
-      const name = $("#ce_name", el).value.trim(), pct = $("#ce_pct", el).value, which = $("#ce_groups", el).value.split(",").map(s => s.trim()).filter(Boolean);
+      const name = $("#ce_name", el).value.trim(), pct = $("#ce_pct", el).value;
+      const pickedGroups = $$("[data-grp]:checked", el).map(c => c.value), typed = $("#ce_items", el).value.split(",").map(s => s.trim()).filter(Boolean);
       if (!name) { toast("Give the season a name.", true); return; } if (pct === "" || isNaN(Number(pct))) { toast("Enter the sales change in %, for example 40.", true); return; }
       if ($("#ce_end", el).value < $("#ce_start", el).value) { toast("The last day is before the first day.", true); return; }
-      const itemSet = new Set(state.items.map(i => i.item_code));
-      events.push({ name, kind: $("#ce_kind", el).value, start: $("#ce_start", el).value, end: $("#ce_end", el).value, uplift_pct: Number(pct), item_groups: which.filter(w => !itemSet.has(w)), items: which.filter(w => itemSet.has(w)), note: $("#ce_note", el).value.trim() });
+      const byCode = new Map(state.items.map(i => [i.item_code.toLowerCase(), i.item_code]));
+      const unknown = typed.filter(t => !byCode.has(t.toLowerCase()));
+      if (unknown.length) { toast("Not an item code in ERPNext: " + unknown.join(", ") + ". Tick its group instead, or check the code.", true); return; }
+      events.push({ name, kind: $("#ce_kind", el).value, start: $("#ce_start", el).value, end: $("#ce_end", el).value, uplift_pct: Number(pct), item_groups: pickedGroups,
+                    items: [...new Set(typed.map(t => byCode.get(t.toLowerCase())))], note: $("#ce_note", el).value.trim() });
       events.sort((a, b) => a.start.localeCompare(b.start)); draw(); dirty("calsave", "They apply from the next stock check.");
     });
     $("#calsave", el).addEventListener("click", async () => { try { state.cal = await api("PUT", "/api/v1/settings/module/calendar", { set: { enabled, events } }); toast("Busy seasons saved"); cfgSeasons(el); } catch (e) { toast(e.message, true); } });

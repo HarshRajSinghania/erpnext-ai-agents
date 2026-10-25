@@ -268,3 +268,22 @@ def test_erpnext_puts_the_note_in_terms_and_conditions(erpnext_client_factory=No
     c.create_purchase_order(PurchaseOrderDraft("S-A", "BOLT", 5, 1, "Nos", date(2026, 10, 25), vendor_note="Please confirm delivery."))
     c.create_purchase_order(PurchaseOrderDraft("S-A", "BOLT", 5, 1, "Nos", date(2026, 10, 25)))
     assert s.posts[0]["terms"] == "Please confirm delivery." and "terms" not in s.posts[1]
+
+
+def test_a_busy_season_can_cover_several_item_groups_at_once(make_app, clock):
+    """Settings -> Busy seasons: the console offers every item group as a tick box (25 Oct 2026; before, its single text box kept only one group)."""
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from erp_agents.core.api.app import create_app
+    from erp_agents.core.erp.mock import MockERP
+    app = make_app(erp=MockERP(today=clock().date()), cfg={"auth": {"tokens": [{"token": "o" * 40, "user": "owner", "roles": ["viewer", "approver", "admin"]}]}})
+    c = TestClient(create_app(app))
+    day = clock().date()
+    season = {"name": "Diwali sale", "kind": "festival", "start": day.isoformat(), "end": (day + timedelta(days=10)).isoformat(), "uplift_pct": 40,
+              "item_groups": ["Fasteners", "Electrical"], "items": ["OIL-5L"]}
+    res = c.put("/api/v1/settings/module/calendar", json={"set": {"enabled": True, "events": [season]}}, headers={"Authorization": "Bearer " + "o" * 40})
+    assert res.status_code == 200 and res.json()["effective"]["events"][0]["item_groups"] == ["Fasteners", "Electrical"]
+    covered = {code for code in ("BOLT-M8", "GASKET-X", "CABLE-3C", "RELAY-12V", "OIL-5L", "STEEL-2MM", "PAINT-RED") if app.inventory.analyze_one(code)[0].windows}
+    assert covered == {"BOLT-M8", "GASKET-X", "CABLE-3C", "RELAY-12V", "OIL-5L"}                 # both groups and the single item; Raw Material and Paints untouched
+    page = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'data-grp' in page and 'id="ce_gl"' not in page                                         # tick boxes, not the one-value suggestion box
