@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from erp_agents.core.common import Actor
 from erp_agents.core.packs import Pack, load_manifest
 
 from .agents.tasks import StockAgentTasks
@@ -74,6 +75,8 @@ class StockProcurementPack(Pack):
         app.approvals.on_submitted.append(app.agents.on_submitted)          # a second opinion on each new order request, when switched on
         chat.agent_fallback = app.agents.answer_for_chat
         chat.agent_background = app.agents.chat_background
+        # the chat answers the follow-up questions (late deliveries, receipt differences ...) with the same tools, as the person asking (the core checks the role)
+        chat.tool = lambda name, args, user: app.toolkit.call(name, args, Actor(user or "chat", frozenset({"viewer"}), "chat"))
 
     def routes(self, router: Any, ctx: Any, deps: Any) -> None:
         from .api import routes

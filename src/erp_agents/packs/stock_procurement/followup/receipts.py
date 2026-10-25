@@ -1,7 +1,7 @@
 """Goods receipt check: when goods arrive, compare quantity and price with the purchase order, and flag what does not match before the invoice is paid.
 
 Each submitted goods receipt is checked once (`receipt_checks` remembers it). A line is flagged when:
-  * more arrived than was still to come on the order line (beyond `qty_tolerance_pct`);
+  * more was accepted than was still to come on the order line (beyond `qty_tolerance_pct`); rejected goods do not count here, they are the next point;
   * goods were rejected (a quality problem);
   * the price on the receipt, or on the invoice against it, is `price_tolerance_pct` or more away from the order's price;
   * it was received without a purchase order to compare against.
@@ -36,10 +36,10 @@ def line_problems(l: Any, price_tol_pct: float, qty_tol_pct: float) -> list[dict
         out.append({"kind": "no order", "item_code": l.item_code, "text": f"{item}: {_n(l.received_qty)} {u} received without a purchase order to compare against."})
     elif l.po_qty is not None:
         still = max(l.po_qty - l.po_received_before, 0.0)
-        extra = l.received_qty - still
+        extra = l.accepted_qty - still                  # what was KEPT: goods sent back as rejected are a quality problem (below), not more than ordered
         if extra > EPS and extra > still * qty_tol_pct / 100:
             out.append({"kind": "quantity", "item_code": l.item_code, "extra": extra,
-                        "text": f"{item}: {_n(l.received_qty)} {u} received, but only {_n(still)} {u} were still to come on {l.purchase_order} ({_n(extra)} {u} more than ordered)."})
+                        "text": f"{item}: {_n(l.accepted_qty)} {u} accepted, but only {_n(still)} {u} were still to come on {l.purchase_order} ({_n(extra)} {u} more than ordered)."})
     if l.rejected_qty > EPS:
         share = l.rejected_qty / l.received_qty * 100 if l.received_qty else 100.0
         out.append({"kind": "quality", "item_code": l.item_code, "rejected": l.rejected_qty,

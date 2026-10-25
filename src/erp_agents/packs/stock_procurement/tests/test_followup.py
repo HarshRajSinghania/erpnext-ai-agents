@@ -210,10 +210,20 @@ def test_a_receipt_that_does_not_match_its_order_is_flagged_before_the_invoice_i
     assert rep["flagged"] == 1 and rep["clean"] == 1
     rec = pending(app, "procurement.receipt_check")[0]
     text = text_of(rec)
-    assert "120 pcs received, but only 100 pcs were still to come on PO-0009 (20 pcs more than ordered)" in text
+    assert "110 pcs accepted, but only 100 pcs were still to come on PO-0009 (10 pcs more than ordered)" in text           # the 10 rejected are not "more than ordered"
     assert "10 pcs of 120 rejected" in text and "price on the receipt is 10.50, the order says 10.00 (+5.0%)" in text and "invoice (PINV-0001) is 10.80" in text
     assert "PINV-0001 (unpaid) is not paid yet: hold the payment" in text
     assert app.followup.receipts.run()["checked"] == 0                                                          # each receipt is checked once
+
+
+def test_goods_rejected_from_a_full_delivery_are_a_quality_problem_not_an_over_delivery(app):
+    """Seen on the live ERPNext, 25 Oct 2026: 6,100 delivered against 5,490 still to come, 610 of them rejected. Only the rejection is a problem."""
+    receipt(app, received=6100, rejected=610, po_qty=5490)
+    receipt(app, name="PR-0002", received=5490, po_qty=5490)
+    out = app.toolkit.call("receipt_mismatches", {}, OWNER)
+    (r,) = out["receipts"]
+    assert [p.split(":")[0] for p in r["differences"]] == ["BOLT-M8 (BOLT-M8)"] and "610 pcs of 6,100 rejected (10%)" in r["differences"][0]
+    assert not any("more than ordered" in p for p in r["differences"])
 
 
 def test_a_partial_delivery_is_not_a_mismatch_and_the_tolerance_is_respected(app):

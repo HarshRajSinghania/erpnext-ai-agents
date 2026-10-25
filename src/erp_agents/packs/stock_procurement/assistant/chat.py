@@ -41,7 +41,8 @@ log = logging.getLogger(__name__)
 
 MAX_CHAT_QUESTION = 300
 PROMPT_VERSION = "chat-explain-v1"
-INTENTS = ("item_stock", "stock_overview", "vendor_compare", "document_status", "pending_approvals")
+FOLLOWUP_INTENTS = ("receipt_mismatches", "late_deliveries", "vendor_scorecard", "slow_stock", "substitutes", "stock_counts", "demand_forecast", "decision_history")
+INTENTS = ("item_stock", "stock_overview", "vendor_compare", "document_status", "pending_approvals", *FOLLOWUP_INTENTS)
 DOC_PREFIX = {"PUR-ORD": "Purchase Order", "MAT-MR": "Material Request", "MAT-PRE": "Purchase Receipt"}
 DOC_NAME = re.compile(r"\b([A-Za-z]{2,5}-[A-Za-z]{2,5})-(\d{4})-(\d{3,7})\b")
 SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£"}
@@ -65,6 +66,30 @@ CANCEL_VERBS = {"cancel", "delete", "withdraw", "revoke", "remove"}
 EDIT_VERBS = {"edit", "change", "modify", "amend", "update", "revise", "replace"}
 MANAGE_TARGET = re.compile(r"\bpurchase orders?\b|\bpos?\b|\border\b")
 NOT_AN_INSTRUCTION = {"status", "history", "overdue", "late", "delayed", "received", "delivered", "why", "when", "who", "happens", "happen", "if"}
+# Questions answered by one of the follow-up tools (the same ones the AI agents use), checked before the general purchase-document list. First match wins.
+_V = r"(?:vendors?|suppliers?)"
+FOLLOWUP_RULES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("receipt_mismatches", re.compile(r"\b(?:receipts?|grns?|goods)\b.*\b(?:match\w*|mismatch\w*|differ\w*|discrepan\w*|wrong|short|excess|more than ordered|rejected|check\w*)\b"
+                                      r"|\b(?:mismatch\w*|discrepanc\w*)\b")),
+    ("late_deliveries", re.compile(r"\b(?:late|overdue|delayed|not (?:yet )?(?:arrived|come)|chas\w+)\b.*\b(?:deliver\w*|shipments?)\b|\b(?:deliver\w*|shipments?)\b.*\b(?:late|overdue|delayed)\b"
+                                   r"|\b" + _V + r"\b.*\b(?:late|overdue|delayed)\b|\bchas\w+\b")),
+    ("vendor_scorecard", re.compile(r"\bscorecard\b|\brank\w*\b.*\b" + _V + r"\b|\b(?:best|worst|most reliable|least reliable|reliable)\b.*\b" + _V + r"\b"
+                                    r"|\b" + _V + r"\b.*\b(?:best|worst|reliab\w*)\b|\b(?:vendor|supplier) performance\b|\bon[- ]time (?:record|rate|delivery|deliveries)\b|\bprice drift\b")),
+    ("slow_stock", re.compile(r"\b(?:slow|dead)[- ]?(?:stock|moving|movers?|items?)\b|\bnot (?:moving|selling)\b|\bt(?:ie|ies|ying) up (?:cash|money|capital)\b|\b(?:excess|over)[- ]?stock\w*\b")),
+    ("substitutes", re.compile(r"\b(?:substitut\w*|alternatives?|alternate)\b")),
+    ("stock_counts", re.compile(r"\b(?:cycle|stock) counts?\b|\bcount(?:ing)? (?:plan|list|schedule)\b|\bwhat (?:should|to|do) (?:we|i) count\b|\bcount (?:variances?|differences?)\b")),
+    ("demand_forecast", re.compile(r"\bforecast\w*\b|\bseason\w*\b|\bexpected (?:demand|usage|use|sales)\b")),
+)
+HISTORY_RE = re.compile(r"^(?:and )?why (?:did|was|were|have|has)\b|\b(?:decision|audit) (?:history|trail|log)\b|\bwhat did (?:we|i|you) decide\b|\bpast decisions?\b")
+
+
+def followup_intent(q: str) -> Optional[str]:
+    """Which follow-up tool answers this question, if any (q is lower case)."""
+    if HISTORY_RE.search(q):
+        return "decision_history"
+    return next((name for name, rule in FOLLOWUP_RULES if rule.search(q)), None)
+
+
 ORDER_POLITE = re.compile(r"^(?:(?:please|kindly|can you|could you|would you|will you|i (?:want|need) to|i would like to|i'd like to|let's|lets|go ahead and)\s+)+")
 
 
@@ -124,7 +149,10 @@ ROUTE_SCHEMA = {"type": "object", "properties": {"intent": {"type": "string", "e
 ROUTE_SYSTEM = ("You sort one business question into exactly one category. Categories: "
                 "item_stock (the stock level or days left of one particular item), stock_overview (what is running low or out of stock overall), "
                 "vendor_compare (comparing vendors, suppliers or prices), document_status (the status of purchase orders, requisitions or receipts), "
-                "pending_approvals (requests waiting for the owner's approval), unknown (anything else). Reply only with JSON.")
+                "pending_approvals (requests waiting for the owner's approval), receipt_mismatches (goods receipts that do not match their purchase order), "
+                "late_deliveries (purchase orders that are late), vendor_scorecard (how vendors rank on delivery, price and quality), slow_stock (dead or slow stock tying up cash), "
+                "substitutes (approved alternative items), stock_counts (cycle counts and count differences), demand_forecast (expected demand, seasonality), "
+                "decision_history (why something was decided earlier), unknown (anything else). Reply only with JSON.")
 
 
 class ChatLimit(Exception):
@@ -153,6 +181,7 @@ class Plan:
     bad_qty: bool = False                                     # a quantity was written but is zero, negative or not a plain number
     period_given: bool = False                                # the question names a period ("this week", "last 14 days"): otherwise open orders are shown whatever their age
     manage: Optional[str] = None                              # "cancel" | "edit": the person wants an order that exists taken back or changed
+    text: str = ""                                            # the question, lower case (a follow-up answer reads its wording, e.g. count plan or count differences)
 
 
 def resolve_items(question: str, items: list[ItemInfo]) -> tuple[list[ItemInfo], list[ItemInfo]]:
@@ -220,7 +249,7 @@ def understand(question: str, items: list[ItemInfo], context: Optional[dict[str,
     q = " ".join(question.lower().split())
     toks = tokens(q)
     qs = set(toks)
-    plan = Plan()
+    plan = Plan(text=q)
     plan.docs = [f"{m.group(1).upper()}-{m.group(2)}-{m.group(3)}" for m in DOC_NAME.finditer(question)]
     plan.items, plan.near = resolve_items(question, items)
     groups = sorted({i.group for i in items if i.group})
@@ -250,10 +279,13 @@ def understand(question: str, items: list[ItemInfo], context: Optional[dict[str,
     plan.doctypes = doctypes
 
     plan.manage = wants_manage(q)
+    follow = followup_intent(q)
     if plan.manage:
         plan.intent = "order_manage"
     elif not plan.docs and wants_order(q):
         plan.intent = "order_request"
+    elif follow == "decision_history" or (follow and not plan.docs):
+        plan.intent = follow
     elif plan.docs:
         plan.intent = "document_status"
     elif plan.status == "overdue" and not plan.items:
@@ -327,6 +359,7 @@ class ChatService:
         self.limit, self.window = limit, window_seconds
         self.agent_fallback: Optional[Callable[[str, str, bool], Optional[dict[str, Any]]]] = None      # (question, user, can_decide) -> an agent's answer, or None (set by bootstrap)
         self.agent_background: Optional[Callable[[str, str, bool], Optional[dict[str, Any]]]] = None    # same, but starts the agent and returns {"task_id", "answer"} to poll
+        self.tool: Optional[Callable[[str, dict[str, Any], str], dict[str, Any]]] = None             # (tool, arguments, who asks) -> the tool's result, with the core's role check (set by the pack)
         self._asked: dict[str, deque] = {}
         self._lock = threading.Lock()
         self._items_cache: tuple[float, list[ItemInfo]] = (0.0, [])
@@ -479,6 +512,8 @@ class ChatService:
             return Answer("help", HELP.format(example=sample), status="help", follow_ups=["What is running low?", f"How much {sample} do we have?", "What is waiting for my OK?"])
         if plan.intent == "pending_approvals":
             return self._pending(can_decide)
+        if plan.intent in FOLLOWUP_INTENTS:
+            return self._followup(plan, sample)
         if plan.intent == "stock_overview":
             return self._overview_answer(plan)
         if plan.intent == "document_status":
@@ -490,6 +525,135 @@ class ChatService:
         if len(plan.items) > 3:
             return self._ask_which(plan.items[:8], "That matches several items.")
         return self._item_stock(plan) if plan.intent == "item_stock" else self._vendor_compare(plan)
+
+    # ------------------------------------------------------------------ the follow-up questions, answered by the same tools the agents use
+    def _followup(self, plan: Plan, sample: str) -> Answer:
+        if self.tool is None:
+            return Answer(plan.intent or "help", "I cannot answer that here.", status="help")
+        needs_item = plan.intent in ("substitutes", "demand_forecast")
+        if needs_item and not plan.items:
+            if plan.near:
+                return self._ask_which(plan.near, "I could not tell exactly which item you mean.")
+            what = "approved alternatives of" if plan.intent == "substitutes" else "the forecast for"
+            return Answer(plan.intent, f"Which item do you mean? For example: {what} {sample}.", status="clarify")
+        code = plan.items[0].code if plan.items else None
+        args: dict[str, Any] = {
+            "receipt_mismatches": {"days": plan.since_days} if plan.period_given else {},
+            "late_deliveries": {},
+            "vendor_scorecard": {},
+            "slow_stock": {"limit": 10},
+            "substitutes": {"item_code": code},
+            "stock_counts": {"kind": "variances" if re.search(r"varian|differen|discrepan", plan.text) else "plan"},
+            "demand_forecast": {"item_code": code, "weeks": 6},
+            "decision_history": {"item_code": code, "query": " ".join(plan.docs), "limit": 5},
+        }[plan.intent or ""]
+        res = self.tool(plan.intent or "", args, plan.user)
+        if res.get("error"):
+            return Answer(plan.intent or "help", f"I could not check that: {res['error']}.", status="error")
+        lines = getattr(self, "_fu_" + (plan.intent or ""))(res)
+        head, rest = lines[0], lines[1:]
+        return Answer(plan.intent or "help", "\n".join([head] + [f"• {l}" for l in rest]), facts=_facts(lines), items=[code] if code else [])
+
+    @staticmethod
+    def _fu_receipt_mismatches(r: dict[str, Any]) -> list[str]:
+        if not r["with_differences"]:
+            return [f"All {r['receipts_checked']} goods receipts of the last {r['days']} days match their purchase orders: quantity, price and nothing rejected."]
+        out = [f"{r['with_differences']} of {r['receipts_checked']} goods receipts in the last {r['days']} days do not match their purchase order:"]
+        for x in r["receipts"]:
+            out.append(f"{x['receipt']} from {x['vendor']}" + (" (still a draft)" if x["draft"] else "") + ": " + " ".join(x["differences"]) + " " + x["before_you_pay"])
+        return out
+
+    @staticmethod
+    def _fu_late_deliveries(r: dict[str, Any]) -> list[str]:
+        if not r["late_orders"]:
+            return ["No purchase order is late: everything still to come is within its due date."]
+        out = [f"{r['late_orders']} purchase order{'s are' if r['late_orders'] != 1 else ' is'} late:"]
+        for o in r["orders"]:
+            parts = []
+            for e in o["items"]:
+                cover = (f"; stock on hand lasts about {_n(e['cover_days_without_it'])} days without it" if e.get("cover_days_without_it") is not None else "") + \
+                        (f", {_n(e['cover_days_with_it'])} days with it" if e.get("cover_days_with_it") is not None else "")
+                parts.append(f"{_n(e['still_to_come'])} {e['uom']} of {e['item_code']} still to come{cover}")
+            sent = f" Reminders sent: {o['reminders_sent']}." if o["reminders_sent"] else ""
+            out.append(f"{o['document']} from {o['vendor']}, {o['days_late']} days late (due {_d(o['due'])}): " + "; ".join(parts) + "." + sent)
+        return out
+
+    @staticmethod
+    def _fu_vendor_scorecard(r: dict[str, Any]) -> list[str]:
+        ranked = [v for v in r["vendors"] if v["rank"]]
+        if not ranked:
+            return ["There are not enough goods receipts yet to rank the vendors."]
+        out = [f"Vendors ranked on on-time delivery, price drift and quality, last {r['days']} days:"]
+        for v in r["vendors"]:
+            if not v["rank"]:
+                continue
+            bits = [f"score {_n(v['score'])}"] + ([f"on time {_n(v['on_time_pct'])}%"] if v["on_time_pct"] is not None else []) + \
+                   ([f"prices {'+' if (v['price_drift_pct'] or 0) > 0 else ''}{_n(v['price_drift_pct'], 1)}%"] if v["price_drift_pct"] is not None else []) + \
+                   ([f"{_n(v['rejected'])} rejected"] if v["rejected"] else [])
+            out.append(f"{v['rank']}. {v['vendor']}: " + ", ".join(bits) + "." + (f" {v['why_lower']}" if v["why_lower"] else ""))
+        return out
+
+    def _fu_slow_stock(self, r: dict[str, Any]) -> list[str]:
+        if not r["items"]:
+            return ["No dead or slow stock: every item with stock has been used recently and lasts less than your limit."]
+        cash = f", tying up about {self._money(r['cash_tied_up'])}" if r.get("values_known") else ""
+        out = [f"{r['dead']} dead and {r['slow']} slow item{'s' if r['dead'] + r['slow'] != 1 else ''}{cash}:"]
+        for x in r["items"]:
+            worth = f" ({self._money(x['value_tied_up'])} tied up)" if x.get("value_tied_up") is not None else ""
+            out.append(f"{x['item_name']} ({x['item_code']}), {x['kind']}: {_n(x['on_hand'])} {x['uom']}{worth}. {x['advice']}")
+        return out
+
+    @staticmethod
+    def _fu_substitutes(r: dict[str, Any]) -> list[str]:
+        alts = [a for a in r["alternatives"] if not a.get("error")]
+        if not alts:
+            return [r.get("note") or f"ERPNext lists no approved alternative for {r['item_code']}."]
+        out = [f"Approved alternatives of {r['item_name']} ({r['item_code']}) in ERPNext:"]
+        for a in alts:
+            cover = f", about {_n(a['cover_days'])} days at its own use" if a.get("cover_days") is not None else ""
+            out.append(f"{a['item_name']} ({a['item_code']}): {_n(a['available'])} available{cover}.")
+        return out
+
+    @staticmethod
+    def _fu_stock_counts(r: dict[str, Any]) -> list[str]:
+        if r["kind"] == "variances":
+            if not r["documents"]:
+                return ["No recent stock count found a difference worth explaining."]
+            out = [f"{r['lines']} count difference{'s' if r['lines'] != 1 else ''} to look at:"]
+            for d in r["documents"]:
+                for l in d["lines"]:
+                    out.append(f"{d['document']}, {l['item_code']} in {l['warehouse']}: " + " ".join(l["why"]))
+            return out
+        if not r["count_these"]:
+            return ["Nothing is due for counting this week."]
+        out = [f"Count these {len(r['count_these'])} items this week ({r['due']} are due):"]
+        for c in r["count_these"]:
+            why = "negative stock in ERPNext" if c["negative_stock"] else ("never counted" if not c["last_counted"] else f"last counted {_d(c['last_counted'])}")
+            out.append(f"{c['item_name']} ({c['item_code']}), class {c['class']}: {why}.")
+        return out
+
+    @staticmethod
+    def _fu_demand_forecast(r: dict[str, Any]) -> list[str]:
+        u = r["uom"]
+        season = (f" Last year's season raises it x{_n(r['seasonal_index'], 2)}." if (r["seasonal_index"] or 1) > 1 else "")
+        sales = (f" {_n(r['open_sales_orders_due'])} {u} is due on open sales orders" + (" (already taken off available stock)." if r["sales_orders_already_reserved"] else ".")
+                 if r["open_sales_orders_due"] else "")
+        out = [f"{r['item_name']} ({r['item_code']}): over the next {_n(r['lead_plus_safety_days'])} days (lead time + safety) expect about {_n(r['expected_use_in_lead_time'])} {u} "
+               f"of use; reorder point {_n(r['reorder_point'])} {u}, stock position {_n(r['stock_position'])} {u}." + season + sales
+               + (" It is time to order." if r["time_to_order"] else "")]
+        for w in r["weekly"]:
+            out.append(f"Week of {_d(w['week_starting'])}: about {_n(w['expected_use'])} {u} of use" + (f", {_n(w['sales_orders_due'])} {u} due on sales orders" if w["sales_orders_due"] else "") + ".")
+        return out
+
+    @staticmethod
+    def _fu_decision_history(r: dict[str, Any]) -> list[str]:
+        if not r["decisions"]:
+            return [f"I found no decision on that in the last {r['days']} days."]
+        out = [f"The last {r['listed']} decision{'s' if r['listed'] != 1 else ''} on that (of {r['found']}), newest first:"]
+        for d in r["decisions"]:
+            why = " Why: " + " ".join(d["why"][:2]) if d["why"] else ""
+            out.append(f"{d['when'][:10]} {d['title']}: {d['outcome']}{why}")
+        return out
 
     def _order_request(self, plan: Plan, can_decide: bool, sample: str) -> Answer:
         """'Create a purchase order for X': prepare the usual order request (vendors compared, Create order / Change quantity / Change vendor) for the person to answer.
