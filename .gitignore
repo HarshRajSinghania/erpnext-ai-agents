@@ -16,6 +16,7 @@ data/
 *.log
 tools/testdata/manifest.jsonl
 tools/testdata/days_state.json
+tools/testdata/features_state.json
 tools/e2e/last_run.log
 
 # tooling and caches

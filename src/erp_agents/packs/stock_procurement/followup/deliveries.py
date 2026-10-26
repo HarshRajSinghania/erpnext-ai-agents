@@ -48,7 +48,7 @@ class DeliveryChaser:
     def open_orders(self) -> list[dict[str, Any]]:
         """Submitted purchase orders with quantity still to come, as plain rows."""
         out = []
-        for d in self.app.erp.get_documents("Purchase Order", limit=500):
+        for d in self.app.erp.get_documents("Purchase Order", limit=2000, open_only=True):          # the ERP leaves finished orders out, so an old open one is never lost behind newer ones
             if int(d.get("docstatus") or 0) != 1 or (d.get("status") or "") in FINISHED:
                 continue
             lines = [{"item_code": l.get("item_code"), "item_name": l.get("item_name") or l.get("item_code"), "uom": l.get("uom") or "units", "qty": float(l.get("qty") or 0),

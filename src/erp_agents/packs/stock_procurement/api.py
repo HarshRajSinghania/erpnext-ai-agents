@@ -70,8 +70,8 @@ def routes(router: Any, ctx: Any, deps: Any) -> None:
         return tool("receipt_mismatches", {"days": days}, actor)
 
     @router.get("/api/v1/followup/scorecard")
-    def vendor_scorecard(days: Optional[int] = Query(None, ge=30, le=730), actor: Actor = Depends(require("viewer"))) -> dict:
-        return tool("vendor_scorecard", {"days": days}, actor)
+    def vendor_scorecard(days: Optional[int] = Query(None, ge=30, le=730), vendor: Optional[str] = Query(None, max_length=140), actor: Actor = Depends(require("viewer"))) -> dict:
+        return tool("vendor_scorecard", {"days": days, "vendor": vendor}, actor)
 
     @router.get("/api/v1/followup/quotes")
     def quote_rounds(limit: int = Query(20, ge=1, le=MAX_LIST_LIMIT), _: Actor = Depends(require("viewer"))) -> list[dict]:

@@ -47,8 +47,10 @@ TOOLS: tuple[ToolSpec, ...] = (
                                 "the delivery and with it. Also whether the vendor has been reminded.", {}, (), "viewer", READ),
     ToolSpec("receipt_mismatches", "Goods receipts that do not match their purchase order (more than ordered, rejected goods, a different price on the receipt or invoice), and "
                                    "whether the invoice is paid yet.", {"days": {"type": "integer", "description": "How many days back, 1 to 120 (default from the settings)"}}, (), "viewer", READ),
-    ToolSpec("vendor_scorecard", "Vendors ranked on on-time delivery, price drift and quality (rejected goods, receipts not matching the order), with the reason a vendor ranks lower.",
-             {"days": {"type": "integer", "description": "How many days back, 30 to 730 (default from the settings)"}}, (), "viewer", READ),
+    ToolSpec("vendor_scorecard", "Vendors ranked on on-time delivery, price drift and quality (rejected goods, receipts not matching the order), with the reason a vendor ranks lower. "
+                                 "With many vendors it shows the best 5 and the worst 5; give a vendor's name to see that one.",
+             {"days": {"type": "integer", "description": "How many days back, 30 to 730 (default from the settings)"},
+              "vendor": {"type": "string", "maxLength": 140, "description": "Words of a vendor's name, to see only the vendors whose name contains all of them"}}, (), "viewer", READ),
     ToolSpec("demand_forecast", "The forecast for ONE item: the reorder point from last year's season and open sales orders, and expected use week by week.",
              {"item_code": ITEM, "weeks": {"type": "integer", "description": "Weeks ahead, 1 to 13 (default 6)"}}, ("item_code",), "viewer", READ),
     ToolSpec("slow_stock", "Items that tie up cash: dead stock (no use for a long time) and slow stock (far more than is used), with the value tied up and a suggested action.",
@@ -183,7 +185,7 @@ class StockTools:
                 return err
             code = item.code
         doctype = "Material Request" if kind == "requisition" else "Purchase Order"
-        docs = [d for d in self.app.erp.get_documents(doctype, item_code=code, limit=100) if d["docstatus"] == 0 or (d["docstatus"] == 1 and d["status"] not in ("Completed", "Closed", "Cancelled", "Delivered", "Received"))]
+        docs = [d for d in self.app.erp.get_documents(doctype, item_code=code, limit=100, open_only=True) if d["docstatus"] == 0 or (d["docstatus"] == 1 and d["status"] not in ("Completed", "Closed", "Cancelled", "Delivered", "Received"))]
         today = self.app.inventory.today()
         rows = []
         for d in docs:
@@ -257,16 +259,27 @@ class StockTools:
                 "receipts": [{"receipt": r["receipt"], "vendor": r["vendor"], "posted": r["posted"], "draft": r["draft"], "checked": r["checked"],
                               "differences": [_clip(p["text"], 220) for p in r["problems"]][:4], "before_you_pay": _clip(r["before_you_pay"], 220)} for r in res["receipts"][:10]]}
 
-    def _vendor_scorecard(self, actor: Actor, days: Optional[int] = None) -> dict[str, Any]:
+    def _vendor_scorecard(self, actor: Actor, days: Optional[int] = None, vendor: Optional[str] = None) -> dict[str, Any]:
         from .followup.scorecard import scorecard
         days = max(30, min(int(days), 730)) if days else None
         res = scorecard(self.app, days)
         if not res.get("available"):
             return {"error": res.get("note", "not available")}
-        return {"days": res["days"], "vendors": [{"rank": v["rank"], "vendor": v["name"], "score": _r(v["score"], 0), "on_time_pct": _r(v["on_time"] * 100, 0) if v["on_time"] is not None else None,
+        every = res["vendors"]
+        ranked = [v for v in every if v["rank"]]
+        if vendor and vendor.strip():
+            words = vendor.strip().lower().split()
+            shown, showing = [v for v in every if all(w in v["name"].lower() for w in words)][:10], f"the vendors whose name contains '{untrusted(vendor.strip(), 60)}'"
+            if not shown:
+                return {"days": res["days"], "ranked_vendors": len(ranked), "vendors": [], "note": f"no vendor with '{untrusted(vendor.strip(), 60)}' in its name has deliveries in the last {res['days']} days"}
+        elif len(every) > 10:
+            shown, showing = ranked[:5] + ranked[-5:], "the best 5 and the worst 5"
+        else:
+            shown, showing = every, "all"
+        return {"days": res["days"], "ranked_vendors": len(ranked), "vendors_in_all": len(every), "showing": showing, "vendors": [{"rank": v["rank"], "vendor": v["name"], "score": _r(v["score"], 0), "on_time_pct": _r(v["on_time"] * 100, 0) if v["on_time"] is not None else None,
                                                    "avg_days_late": _r(v["avg_days_late"], 1), "late_now": v["late_now"], "price_drift_pct": _r(v["price_drift_pct"], 1),
                                                    "rejected": _r(v["rejected"]), "received": _r(v["received"]), "receipt_differences": v["mismatches"],
-                                                   "notes": [_clip(n, 200) for n in v["notes"]][:3], "why_lower": _clip(v["why_lower"], 300)} for v in res["vendors"][:10]]}
+                                                   "notes": [_clip(n, 200) for n in v["notes"]][:3], "why_lower": _clip(v["why_lower"], 300)} for v in shown]}
 
     def _demand_forecast(self, actor: Actor, item_code: str, weeks: int = 6) -> dict[str, Any]:
         from .inventory.forecast import forecast_reorder_point

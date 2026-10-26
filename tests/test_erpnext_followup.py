@@ -118,3 +118,15 @@ def test_documents_carry_the_supplier_id_as_well_as_its_name():
                 "Purchase Order Item": [{"parent": "PO-1", "item_code": "BOLT", "qty": 10, "received_qty": 2, "uom": "Nos"}]})
     (d,) = c.get_documents("Purchase Order")
     assert (d["party"], d["party_id"], d["lines"][0]["done_qty"]) == ("Alpha Ltd", "SUP-A", 2)
+
+
+def test_open_only_asks_the_erp_to_leave_finished_documents_out_before_the_limit():
+    c = client({"Purchase Order": [{"name": "PO-OLD", "status": "To Receive", "docstatus": 1, "supplier_name": "Alpha", "supplier": "SUP-A", "transaction_date": "2026-01-02", "schedule_date": "2026-02-01"}],
+                "Purchase Order Item": [{"parent": "PO-OLD", "item_code": "BOLT", "qty": 10, "received_qty": 0, "uom": "Nos"}]})
+    (d,) = c.get_documents("Purchase Order", open_only=True, limit=5)
+    assert d["name"] == "PO-OLD"
+    sent = [json.loads(p["filters"]) for u, p in c.session.calls if u.endswith("/api/resource/Purchase Order")][0]
+    assert ["status", "not in", ["Completed", "Closed", "Cancelled", "Delivered"]] in sent
+    c.get_documents("Purchase Order")
+    plain = [json.loads(p["filters"]) for u, p in c.session.calls if u.endswith("/api/resource/Purchase Order")][-1]
+    assert not any(f[0] == "status" for f in plain)                                                          # the default is unchanged

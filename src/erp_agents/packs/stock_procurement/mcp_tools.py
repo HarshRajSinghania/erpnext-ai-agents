@@ -65,8 +65,9 @@ def register(server: MCPServer, run: Any) -> None:
         return await run("receipt_mismatches", {"days": days})
 
     @server.tool(name="vendor_scorecard", description=SPEC["vendor_scorecard"].description, annotations=READ_ONLY)
-    async def vendor_scorecard(days: Annotated[Optional[int], _d("vendor_scorecard", "days")] = None) -> dict[str, Any]:
-        return await run("vendor_scorecard", {"days": days})
+    async def vendor_scorecard(days: Annotated[Optional[int], _d("vendor_scorecard", "days")] = None,
+                               vendor: Annotated[Optional[str], _d("vendor_scorecard", "vendor")] = None) -> dict[str, Any]:
+        return await run("vendor_scorecard", {"days": days, "vendor": vendor})
 
     @server.tool(name="demand_forecast", description=SPEC["demand_forecast"].description, annotations=READ_ONLY)
     async def demand_forecast(item_code: Annotated[str, _d("demand_forecast", "item_code")], weeks: Annotated[int, _d("demand_forecast", "weeks")] = 6) -> dict[str, Any]:

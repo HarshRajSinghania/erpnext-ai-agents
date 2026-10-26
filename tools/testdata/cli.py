@@ -112,6 +112,74 @@ def run_days(args) -> int:
     return 1 if poster.failures else 0
 
 
+def run_features(args) -> int:
+    from datetime import date as _date
+
+    from . import features
+    state = json.loads(features.STATE.read_text(encoding="utf-8")) if features.STATE.exists() else {}
+    today = _date.fromisoformat(args.today) if args.today else (_date.fromisoformat(state["_t0"]) if state.get("_t0") else _date.today())
+    only = {s for s in (args.only or "").split(",") if s} or None
+    if args.action == "check":
+        features.check(args.config, today)
+        return 0
+    ctx = build_context(args.action == "plan", args.config)
+    plan = features.Features(ctx, today, only)
+    if args.action == "plan":
+        try:
+            rows = plan.summary()
+        except features.PlanError as exc:
+            print(f"PLAN ERROR: {exc}")
+            return 1
+        total: dict[str, int] = {}
+        print(f"Feature scenarios as of {today.isoformat()} ({len(rows)} materials, 4 vendors). Nothing is read or written.\n")
+        print(f"{'material':<12} {'scenario':<10} {'stock today':>12} {'opening':>9} {'lowest':>8}  documents")
+        for r in rows:
+            for k, v in r["docs"].items():
+                total[k] = total.get(k, 0) + v
+            print(f"{r['code']:<12} {r['scenario']:<10} {r['stock_now']:>12g} {r['opening']:>9g} {r['lowest']:>8g}  " + ", ".join(f"{v} {k}" for k, v in sorted(r["docs"].items())))
+        print("\nDocuments in all: " + ", ".join(f"{v} {k}" for k, v in sorted(total.items())) + f"  (total {sum(total.values())})")
+        return 0
+    if args.action == "report":
+        for r in features.stock_report(ctx, list(plan.mats)):
+            print(f"{r['code']:<12} {r['name'][:62]:<62} on hand {r['on_hand']:>9,.0f} {r['uom']:<5} reserved {r['reserved']:>6,.0f}  on order {r['on_order']:>7,.0f}  value {r['value']:>12,.0f}")
+        return 0
+    if args.action == "redo-sales":
+        done = plan.cancel_foreign_sales()
+        print(f"Delivery notes and sales orders of the scenarios on customers other than the test customers: {done['cancelled']} cancelled, {done['deleted']} drafts deleted.")
+        return 0
+    if args.action == "quote-replies":
+        if not args.item:
+            print("give --item TST-RFQ-1")
+            return 2
+        plan.load_names()
+        names = plan.quote_replies(args.item, args.qty, {"alpha": args.alpha, "beta": args.beta, "delta": args.delta})
+        print("Supplier quotations posted:", ", ".join(names))
+        return 0
+    state["_t0"] = today.isoformat()
+    features.STATE.write_text(json.dumps(state, indent=1), encoding="utf-8")
+    try:
+        plan.summary()
+    except features.PlanError as exc:
+        print(f"PLAN ERROR: {exc}")
+        return 1
+    try:
+        plan.run_all()
+    except WriterError as exc:
+        print(f"\nSTOPPED: {exc}\nEverything posted before this is kept; re-running continues from here.")
+        plan.restore_same_rate()
+        return 1
+    finally:
+        print("\nCreated in this run:")
+        for k, v in sorted(plan.made.items()):
+            print(f"  {k:<28} {v}")
+        print(f"  {'TOTAL':<28} {sum(plan.made.values())}")
+        for n in plan.notes:
+            print("  -", n)
+        for k, msg in plan.failures:
+            print("  !", k, msg[:400])
+    return 1 if plan.failures else 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="testdata")
     p.add_argument("--config", default="config/settings.erpnext.yaml")
@@ -141,6 +209,15 @@ def main(argv=None) -> int:
     d.add_argument("--d1")
     d.add_argument("--d2")
     d.add_argument("--stop-on-error", action="store_true")
+    f = sub.add_parser("features", help="materials, vendors and documents for testing the follow-up and stock-intelligence features (delivery chasing, receipt check, scorecard ...)")
+    f.add_argument("action", choices=["plan", "run", "report", "quote-replies", "check", "redo-sales"])
+    f.add_argument("--only", help="comma separated scenarios: late,grn,scorecard,rfq,seasonal,slow,subs,counts")
+    f.add_argument("--today", help="the day the relative dates count from (default: the day of the first run)")
+    f.add_argument("--item", help="quote-replies: the material the quotations are for")
+    f.add_argument("--qty", type=float, default=500.0, help="quote-replies: the quantity quoted")
+    f.add_argument("--alpha", type=float, default=2700.0, help="quote-replies: Alpha's price per unit")
+    f.add_argument("--beta", type=float, default=2600.0, help="quote-replies: Beta's price per unit")
+    f.add_argument("--delta", type=float, default=2950.0, help="quote-replies: Delta's price per unit")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -159,6 +236,8 @@ def main(argv=None) -> int:
         print(f"  total {len(rows)} records, manifest: {MANIFEST}")
         return 0
 
+    if args.cmd == "features":
+        return run_features(args)
     if args.cmd == "year":
         return run_year(args)
     if args.cmd == "days":

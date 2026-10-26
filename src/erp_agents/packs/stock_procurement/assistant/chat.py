@@ -74,7 +74,7 @@ FOLLOWUP_RULES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("late_deliveries", re.compile(r"\b(?:late|overdue|delayed|not (?:yet )?(?:arrived|come)|chas\w+)\b.*\b(?:deliver\w*|shipments?)\b|\b(?:deliver\w*|shipments?)\b.*\b(?:late|overdue|delayed)\b"
                                    r"|\b" + _V + r"\b.*\b(?:late|overdue|delayed)\b|\bchas\w+\b")),
     ("vendor_scorecard", re.compile(r"\bscorecard\b|\brank\w*\b.*\b" + _V + r"\b|\b(?:best|worst|most reliable|least reliable|reliable)\b.*\b" + _V + r"\b"
-                                    r"|\b" + _V + r"\b.*\b(?:best|worst|reliab\w*)\b|\b(?:vendor|supplier) performance\b|\bon[- ]time (?:record|rate|delivery|deliveries)\b|\bprice drift\b")),
+                                    r"|\b" + _V + r"\b.*\b(?:best|worst|reliab\w*|doing|performing|record|rating)\b|\b(?:vendor|supplier) performance\b|\bon[- ]time (?:record|rate|delivery|deliveries)\b|\bprice drift\b")),
     ("slow_stock", re.compile(r"\b(?:slow|dead)[- ]?(?:stock|moving|movers?|items?)\b|\bnot (?:moving|selling)\b|\bt(?:ie|ies|ying) up (?:cash|money|capital)\b|\b(?:excess|over)[- ]?stock\w*\b")),
     ("substitutes", re.compile(r"\b(?:substitut\w*|alternatives?|alternate)\b")),
     ("stock_counts", re.compile(r"\b(?:cycle|stock) counts?\b|\bcount(?:ing)? (?:plan|list|schedule)\b|\bwhat (?:should|to|do) (?:we|i) count\b|\bcount (?:variances?|differences?)\b")),
@@ -181,6 +181,7 @@ class Plan:
     bad_qty: bool = False                                     # a quantity was written but is zero, negative or not a plain number
     period_given: bool = False                                # the question names a period ("this week", "last 14 days"): otherwise open orders are shown whatever their age
     manage: Optional[str] = None                              # "cancel" | "edit": the person wants an order that exists taken back or changed
+    original: str = ""                                        # the question as it was typed (a vendor's name is told by its capital letters)
     text: str = ""                                            # the question, lower case (a follow-up answer reads its wording, e.g. count plan or count differences)
 
 
@@ -249,7 +250,7 @@ def understand(question: str, items: list[ItemInfo], context: Optional[dict[str,
     q = " ".join(question.lower().split())
     toks = tokens(q)
     qs = set(toks)
-    plan = Plan(text=q)
+    plan = Plan(text=q, original=question)
     plan.docs = [f"{m.group(1).upper()}-{m.group(2)}-{m.group(3)}" for m in DOC_NAME.finditer(question)]
     plan.items, plan.near = resolve_items(question, items)
     groups = sorted({i.group for i in items if i.group})
@@ -537,10 +538,12 @@ class ChatService:
             what = "approved alternatives of" if plan.intent == "substitutes" else "the forecast for"
             return Answer(plan.intent, f"Which item do you mean? For example: {what} {sample}.", status="clarify")
         code = plan.items[0].code if plan.items else None
+        words = [w for w in re.findall(r"[A-Za-z0-9&.'-]+", plan.original)[1:] if w[0].isupper() and w.lower() not in STOP and not w.isdigit()]
+        vendor = " ".join(words)                                  # "How is TST Beta doing?" -> "TST Beta": the scorecard of that vendor
         args: dict[str, Any] = {
             "receipt_mismatches": {"days": plan.since_days} if plan.period_given else {},
             "late_deliveries": {},
-            "vendor_scorecard": {},
+            "vendor_scorecard": {"vendor": vendor} if vendor else {},
             "slow_stock": {"limit": 10},
             "substitutes": {"item_code": code},
             "stock_counts": {"kind": "variances" if re.search(r"varian|differen|discrepan", plan.text) else "plan"},
@@ -548,6 +551,8 @@ class ChatService:
             "decision_history": {"item_code": code, "query": " ".join(plan.docs), "limit": 5},
         }[plan.intent or ""]
         res = self.tool(plan.intent or "", args, plan.user)
+        if plan.intent == "vendor_scorecard" and vendor and not res.get("vendors") and not res.get("error"):
+            res = self.tool("vendor_scorecard", {}, plan.user)    # no vendor of that name: the best and the worst instead
         if res.get("error"):
             return Answer(plan.intent or "help", f"I could not check that: {res['error']}.", status="error")
         lines = getattr(self, "_fu_" + (plan.intent or ""))(res)
@@ -583,7 +588,8 @@ class ChatService:
         ranked = [v for v in r["vendors"] if v["rank"]]
         if not ranked:
             return ["There are not enough goods receipts yet to rank the vendors."]
-        out = [f"Vendors ranked on on-time delivery, price drift and quality, last {r['days']} days:"]
+        shown = f", showing {r['showing']} of {r['ranked_vendors']}" if r.get("showing") not in (None, "all") and r["ranked_vendors"] > len(ranked) else ""
+        out = [f"Vendors ranked on on-time delivery, price drift and quality, last {r['days']} days{shown}:"]
         for v in r["vendors"]:
             if not v["rank"]:
                 continue
@@ -907,7 +913,8 @@ class ChatService:
         else:
             kinds = plan.doctypes or ["Purchase Order", "Material Request"]
             for dt in kinds:
-                docs += self.erp.get_documents(dt, item_code=code, since=since, limit=100 if plan.status else 20)         # the status is applied after reading: look at enough of them
+                docs += self.erp.get_documents(dt, item_code=code, since=since, limit=100 if plan.status else 20,          # the status is applied after reading: look at enough of them
+                                               open_only=plan.status in ("open", "overdue", "draft"))                      # and the ERP itself leaves finished ones out when open ones are wanted
             docs.sort(key=lambda d: (d.get("date") or ""), reverse=True)
             docs = [d for d in docs if _status_match(d, plan.status, today)]
         waiting = []

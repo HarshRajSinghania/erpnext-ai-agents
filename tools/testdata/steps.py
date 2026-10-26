@@ -267,9 +267,9 @@ def _supplier_group(v: world.Vendor) -> str:
     return {"Asia Pacific": "Import Vendors - Asia Pacific", "Europe": "Import Vendors - Europe", "Middle East": "Import Vendors - Middle East"}.get(region, "Import Vendors - Americas")
 
 
-def step_suppliers(ctx: Context) -> None:
+def step_suppliers(ctx: Context, vendors: list[world.Vendor] | None = None) -> None:
     w = ctx.w
-    for n, v in enumerate(world.VENDORS):
+    for n, v in enumerate(world.VENDORS if vendors is None else vendors):
         ccy = world.vendor_currency(v)
         doc: dict[str, Any] = {
             "supplier_name": v.name, "supplier_type": v.legal, "supplier_group": _supplier_group(v), "country": v.country, "tax_category": world.vendor_tax_category(v),
@@ -302,9 +302,9 @@ def _territory(c: world.Customer) -> str:
     return world.STATE_ZONE.get(c.state, "India") if c.country == "India" else world.EXPORT_COUNTRIES[c.country].region
 
 
-def step_customers(ctx: Context) -> None:
+def step_customers(ctx: Context, customers: list[world.Customer] | None = None) -> None:
     w = ctx.w
-    for n, c in enumerate(world.CUSTOMERS):
+    for n, c in enumerate(world.CUSTOMERS if customers is None else customers):
         ccy = world.customer_currency(c)
         doc: dict[str, Any] = {
             "customer_name": c.name, "customer_type": "Company", "customer_group": _customer_group(c), "territory": _territory(c), "default_currency": ccy,

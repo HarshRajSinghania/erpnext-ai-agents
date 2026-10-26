@@ -163,12 +163,15 @@ class MockERP:
             self.set_stock(po["item_code"], incoming=max(cur.incoming - float(po.get("qty") or 0), 0.0))
         return PurchaseOrderResult(ok=True, name=name, note="deleted the draft" if draft else "cancelled it")
 
-    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20) -> list[dict[str, Any]]:
+    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20,
+                      open_only: bool = False) -> list[dict[str, Any]]:
         """What the demo ERP knows: the orders and requisitions created through it (so the chat has something to answer about)."""
         source = self.purchase_orders if doctype == "Purchase Order" else self.requisitions if doctype == "Material Request" else []
         out = []
         for d in reversed(source):
             if name and d["name"] != name:
+                continue
+            if open_only and (d.get("status") in ("Completed", "Closed", "Cancelled", "Delivered") or d.get("docstatus", 0) == 2):
                 continue
             if item_code and d.get("item_code") != item_code:
                 continue

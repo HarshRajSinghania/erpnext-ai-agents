@@ -592,6 +592,8 @@ what it needs).
 
 `python -m tools.testdata.cli days` loads two live business days (yesterday and today) on top of the existing history: quotation and requisition cycles, receipts against old open orders, payments on old invoices, returns, reserved stock, stock issues, a stock count and shipments (about 137 documents; it is safe to run again and `--only rfq1,mr1,oldpo` runs chosen blocks). Details and counts: [docs/E2E_FINDINGS.md](docs/E2E_FINDINGS.md). The app measures an item's usage from the earlier of its creation date and its **first stock movement**, so history loaded into ERPNext after the item was created still counts.
 
+`python -m tools.testdata.cli features run` adds **28 materials (`TST-...`), four test vendors and three test customers, one set of documents for each purchasing follow-up and stock-intelligence feature**: late orders, receipts that do not match, a vendor scorecard, quote requests, a festive-season jump, slow and dead stock, substitute items and stock counts (about 610 documents). What each material shows, its stock position and what to ask: [docs/FEATURE_TEST_SCENARIOS.md](docs/FEATURE_TEST_SCENARIOS.md).
+
 `python -m tools.testdata.cli scenarios` adds **ten materials with a long, readable history** for trying the vendor comparison and the consumption analysis (about
 4,400 documents for 1 Dec 2025 to 20 Oct 2026; it takes about an hour and is safe to run again). Each material has four to six vendors in different places with
 different prices, lead times, reliability and price trends, and six to eight customers (Indian and export); the purchases and sales are real documents (Purchase Order,

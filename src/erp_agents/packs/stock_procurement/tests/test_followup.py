@@ -516,3 +516,46 @@ def test_the_vendor_chosen_from_a_comparison_stays_chosen_even_when_the_usual_ra
     other = next(v["supplier"] for v in usual["vendors"] if v["eligible"] and v["supplier"] != best)
     res = app.procurement.request_purchase({**on_demand_payload(a, "owner", 100, "from a comparison"), "prefer_supplier": other, "use_quotes": True}, "owner")
     assert res["status"] == "created" and res["proposal"].supplier == other != best
+
+
+def test_an_old_late_order_is_found_however_many_newer_finished_ones_there_are(app):
+    """The first check ran on an ERPNext with 750 purchase orders and looked only at the newest 500, so the oldest open order, the likeliest to be late, was never seen."""
+    old = late_order(app, name="PO-EXT-OLD", days_late=200)
+    for i in range(600):                                                                                       # newer, finished orders in front of it
+        app.erp.purchase_orders.append({"name": f"PO-DONE-{i}", "supplier": "Prime Supplies", "supplier_id": "SUP-PRIME", "item_code": "OIL-5L", "qty": 1, "rate": 1.0,
+                                        "required_by": today(app), "docstatus": 1, "status": "Completed", "per_received": 100.0, "received_qty": 1.0})
+    assert [o["document"] for o in app.followup.chaser.late_orders()] == ["PO-EXT-OLD"]
+    assert [d["name"] for d in app.erp.get_documents("Purchase Order", open_only=True, limit=5)] == ["PO-EXT-OLD"]
+
+
+def test_the_scorecard_shows_the_worst_vendors_too_and_one_vendor_by_name(app):
+    """It used to show the first 10 and stop, so with many vendors the ones to worry about never appeared."""
+    t = today(app)
+    for i in range(14):
+        for j in range(2):
+            late = 0 if i < 7 else 2 + i                                              # vendors 7..13 deliver later and later
+            app.erp.receipts.append(ReceiptLine(receipt=f"PR-V{i}-{j}", posting_date=t - timedelta(days=30 + j), supplier=f"SUP-V{i:02d}", supplier_name=f"Vendor {i:02d}", item_code="BOLT-M8",
+                                                item_name="Bolt", uom="pcs", received_qty=10, accepted_qty=10, rate=10.0, purchase_order=f"PO-V{i}-{j}", po_qty=10, po_rate=10.0,
+                                                po_due=t - timedelta(days=30 + j + late)))
+    out = app.toolkit.call("vendor_scorecard", {}, VIEWER)
+    names = [v["vendor"] for v in out["vendors"]]
+    assert out["showing"] == "the best 5 and the worst 5" and out["ranked_vendors"] == 14 and len(names) == 10
+    assert "Vendor 13" in names and "Vendor 00" in names                              # the worst and the best are both there
+    one = app.toolkit.call("vendor_scorecard", {"vendor": "vendor 13"}, VIEWER)
+    assert [v["vendor"] for v in one["vendors"]] == ["Vendor 13"] and one["vendors"][0]["why_lower"].startswith("Ranked below Vendor 00 because")
+    none = app.toolkit.call("vendor_scorecard", {"vendor": "nobody"}, VIEWER)
+    assert none["vendors"] == [] and "no vendor with 'nobody'" in none["note"]
+
+
+def test_the_chat_takes_the_vendor_name_out_of_the_question(app):
+    t = today(app)
+    for i in range(2):
+        for j in range(2):
+            app.erp.receipts.append(ReceiptLine(receipt=f"PR-V{i}-{j}", posting_date=t - timedelta(days=30 + j), supplier=f"SUP-V{i}", supplier_name=f"TST Vendor {'Alpha' if i == 0 else 'Beta'}",
+                                                item_code="BOLT-M8", item_name="Bolt", uom="pcs", received_qty=10, accepted_qty=10, rate=10.0, purchase_order=f"PO-V{i}-{j}", po_qty=10,
+                                                po_rate=10.0, po_due=t - timedelta(days=30 + j + (0 if i == 0 else 5))))
+    one = app.chat.ask("How is the vendor TST Beta doing?", "owner", True)
+    assert one["intent"] == "vendor_scorecard" and "2. TST Vendor Beta: score" in one["answer"] and "1. TST Vendor Alpha: score" not in one["answer"]     # only Beta is listed (its reason may name Alpha)
+    unknown = app.chat.ask("Show the scorecard for Zanzibar Traders", "owner", True)
+    assert "1. TST Vendor Alpha: score" in unknown["answer"] and "2. TST Vendor Beta: score" in unknown["answer"]       # no such vendor: everyone instead
+    assert "1. TST Vendor Alpha: score" in app.chat.ask("Show the vendor scorecard", "owner", True)["answer"]

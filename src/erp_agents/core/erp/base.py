@@ -307,10 +307,12 @@ class ERPClient(Protocol):
         `reference`; never below what has already been received or billed, never on a cancelled, closed or completed order."""
         ...
 
-    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20) -> list[dict[str, Any]]:
+    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20,
+                      open_only: bool = False) -> list[dict[str, Any]]:
         """Read-only. Purchase Orders, Material Requests or Purchase Receipts, newest first, each as
-        {doctype, name, status, docstatus, party, date, due, created_by, approved_by, per_received, per_billed, total, currency, kind, lines:[{item_code, item_name, qty, done_qty, uom}]}.
-        Filter by exact document name, by item on any line, and by earliest date."""
+        {doctype, name, status, docstatus, party, party_id, date, due, created_by, approved_by, per_received, per_billed, total, currency, kind, lines:[{item_code, item_name, qty, done_qty, uom}]}.
+        Filter by exact document name, by item on any line, and by earliest date. `open_only`: the ERP leaves out documents that are completed, closed, cancelled or delivered
+        BEFORE the limit applies, so an old order that is still open is not lost behind newer finished ones."""
         ...
 
     def create_material_request(self, draft: RequisitionDraft, acting: Optional[Any] = None) -> PurchaseOrderResult:

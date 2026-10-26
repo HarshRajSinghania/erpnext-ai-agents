@@ -512,8 +512,8 @@ class _Docs:
     def __init__(self, docs):
         self.docs, self.asked = docs, []
 
-    def __call__(self, doctype, name=None, item_code=None, since=None, limit=20):
-        self.asked.append({"doctype": doctype, "item_code": item_code, "since": since, "limit": limit})
+    def __call__(self, doctype, name=None, item_code=None, since=None, limit=20, open_only=False):
+        self.asked.append({"doctype": doctype, "item_code": item_code, "since": since, "limit": limit, "open_only": open_only})
         return [d for d in self.docs if d["doctype"] == doctype and (not item_code or any(l["item_code"] == item_code for l in d["lines"]))][:limit]
 
 

@@ -638,11 +638,16 @@ class ERPNextClient:
                                  done="qty", per_received=None, per_billed="per_billed", kind=None),
     }
 
-    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20) -> list[dict[str, Any]]:
+    FINISHED = ["Completed", "Closed", "Cancelled", "Delivered"]
+
+    def get_documents(self, doctype: str, name: Optional[str] = None, item_code: Optional[str] = None, since: Optional[date] = None, limit: int = 20,
+                      open_only: bool = False) -> list[dict[str, Any]]:
         spec = self._DOC_SPECS.get(doctype)
         if spec is None:
             raise ERPNextError(f"reading {doctype} is not supported")
         flt: list = [["docstatus", "<", 3]]
+        if open_only:
+            flt.append(["status", "not in", self.FINISHED])
         if name:
             flt.append(["name", "=", name])
         if since:
