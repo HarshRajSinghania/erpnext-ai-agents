@@ -407,17 +407,24 @@ def create_app(app_ctx: App, on_system_change=None, lifespan=None) -> FastAPI:
             return RedirectResponse("/ui/")
 
     # ------------------------------------------------------------------ channel webhooks
-    @api.api_route("/webhooks/{channel_type}", methods=["GET", "POST"])
-    async def webhook(channel_type: str, request: Request):
+    # GET answers a channel's verification request (WhatsApp), POST receives its messages.
+    # Registered separately so each method gets its own OpenAPI operation id.
+    @api.get("/webhooks/{channel_type}", operation_id="webhook_get")
+    async def webhook_get(channel_type: str, request: Request):
         channel = ctx.channels.get(channel_type)
         if channel is None or not channel.supports_webhook:
             raise HTTPException(404, "unknown channel")
-        if request.method == "GET":
-            handled = channel.handle_verification(dict(request.query_params))
-            if handled is None:
-                raise HTTPException(404, "not supported")
-            status, text = handled
-            return PlainTextResponse(text, status_code=status)
+        handled = channel.handle_verification(dict(request.query_params))
+        if handled is None:
+            raise HTTPException(404, "not supported")
+        status, text = handled
+        return PlainTextResponse(text, status_code=status)
+
+    @api.post("/webhooks/{channel_type}", operation_id="webhook_post")
+    async def webhook_post(channel_type: str, request: Request):
+        channel = ctx.channels.get(channel_type)
+        if channel is None or not channel.supports_webhook:
+            raise HTTPException(404, "unknown channel")
         body = await request.body()
         if not channel.verify_webhook(dict(request.headers), dict(request.query_params), body):
             raise HTTPException(401, "bad signature")
