@@ -118,7 +118,8 @@ def test_a_deleted_decision_shows(world):
 
 def test_an_edited_seal_shows(world):
     app, _ = world
-    app.db.execute("UPDATE audit_chain SET digest='0' || substr(digest, 2) WHERE seq=2")
+    # Change the first character of the stored digest. It is random hex, so writing a fixed '0' left it unchanged one time in sixteen and the edit went unnoticed because there was none.
+    app.db.execute("UPDATE audit_chain SET digest=CASE substr(digest, 1, 1) WHEN '0' THEN '1' ELSE '0' END || substr(digest, 2) WHERE seq=2")
     assert any("the seal itself was edited at entry 2" in p for p in app.audit.verify()["problems"])
 
 
