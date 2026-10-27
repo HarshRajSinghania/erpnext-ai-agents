@@ -282,7 +282,7 @@ def test_a_retried_requisition_finds_the_first_one_and_orders_and_requisitions_d
     assert c.create_purchase_order(PurchaseOrderDraft("S-A", "BOLT", 5, 1, "Nos", date(2026, 11, 1), reference="p1")).ok and len(service.docs) == 2     # same proposal id, different document type
 
 
-def test_setup_makes_the_fields_on_both_documents_once():
+def test_setup_makes_the_fields_on_every_document_once():
     class Setup(Docs):
         def __init__(self):
             super().__init__("agent@x.com")
@@ -303,9 +303,10 @@ def test_setup_makes_the_fields_on_both_documents_once():
     c = client_with(s)
     assert c.ensure_po_reference_field() == "created"
     assert sorted(s.made) == sorted([("Purchase Order", "custom_agent_ref", "Data"), ("Purchase Order", "custom_agent_approved_by", "Data"), ("Material Request", "custom_agent_ref", "Data"),
-                                     ("Material Request", "custom_agent_approved_by", "Data"), ("Material Request", "custom_agent_note", "Small Text")])
+                                     ("Material Request", "custom_agent_approved_by", "Data"), ("Material Request", "custom_agent_note", "Small Text"),
+                                     ("Stock Entry", "custom_agent_ref", "Data"), ("Stock Entry", "custom_agent_approved_by", "Data")])
     s.exist = True
-    assert c.ensure_po_reference_field() == "exists" and len(s.made) == 5
+    assert c.ensure_po_reference_field() == "exists" and len(s.made) == 7
 
 
 def test_a_requisition_is_refused_with_the_fix_when_its_fields_are_missing():

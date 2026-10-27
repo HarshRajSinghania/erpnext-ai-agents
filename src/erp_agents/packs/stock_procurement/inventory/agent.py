@@ -335,6 +335,7 @@ class InventoryAgent:
             "position": a.position if a else None,
             "projected": a.projected if a else None,
             "stock_columns": a.breakdown if a else [],
+            "by_warehouse": a.warehouses if a else [],                    # where the stock sits: warehouse, on_hand, reserved, incoming, in_transit
             "calendar": [w.to_dict() for w in a.windows] if a else [],
             "stock_subtract": policy.stock_subtract if policy else None,
             "stock_add": policy.stock_add if policy else None,

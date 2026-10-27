@@ -131,14 +131,14 @@ def cmd_erp_check(args) -> int:
 
 
 def cmd_erp_setup(args) -> int:
-    """One-time ERPNext customisation: the 'Agent proposal reference' field on Purchase Order (prevents duplicate orders)."""
+    """One-time ERPNext customisation: the 'Agent proposal reference' and approver fields on Purchase Order, Material Request and Stock Entry (prevents duplicates, records the approver)."""
     app = _app(args)
     ensure = getattr(app.erp, "ensure_po_reference_field", None)
     if ensure is None:
         print("this ERP adapter needs no setup")
         return 0
     try:
-        print(f"Purchase Order fields 'Agent proposal reference' and 'Approved by (Stock Assistant)': {ensure()}")
+        print(f"Fields 'Agent proposal reference' and 'Approved by (Stock Assistant)' on Purchase Order, Material Request and Stock Entry: {ensure()}")
     except Exception as exc:  # noqa: BLE001
         print(f"setup failed: {exc}")
         return 1
@@ -446,7 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("erp-check", help="test the ERP connection and print sample stock")
     s.set_defaults(fn=cmd_erp_check)
 
-    s = sub.add_parser("erp-setup", help="one-time: add the 'Agent proposal reference' field to Purchase Order in ERPNext")
+    s = sub.add_parser("erp-setup", help="one-time: add the 'Agent proposal reference' and approver fields to Purchase Order, Material Request and Stock Entry in ERPNext")
     s.set_defaults(fn=cmd_erp_setup)
 
     s = sub.add_parser("erp-check-access", help="read-only: does the ERPNext service account hold only the roles the app needs?")

@@ -20,7 +20,7 @@ from .inventory.agent import on_demand_payload
 
 OVERVIEW_TTL_SECONDS = 60
 KIND_WORDS = {"inventory.alert": "stock alert", "inventory.reorder": "reorder suggestion", "procurement.po": "purchase order request", "procurement.pr": "purchase requisition request",
-              "procurement.manual": "request needing a decision", "inventory.monitor_down": "warning"}
+              "procurement.manual": "request needing a decision", "inventory.monitor_down": "warning", "inventory.transfer": "stock transfer request"}
 
 
 ITEM = {"type": "string", "maxLength": 140, "description": "Item code, for example ELE-0025"}
@@ -28,7 +28,7 @@ ITEM = {"type": "string", "maxLength": 140, "description": "Item code, for examp
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("stock_overview", "Which items need attention (out of stock, low, or running down), worst first, plus the number of items in each state. Start here.",
              {"group": {"type": "string", "maxLength": 140, "description": "Only this item group"}, "limit": {"type": "integer", "description": "How many items to list (default 10, at most 25)"}}, (), "viewer", READ),
-    ToolSpec("stock_status", "Stock, usage and days of cover for ONE item: on hand, available, on order, in transit, daily use, trend, lead time, suggested order quantity.",
+    ToolSpec("stock_status", "Stock, usage and days of cover for ONE item: on hand (in total and warehouse by warehouse), available, on order, in transit, daily use, trend, lead time, suggested order quantity.",
              {"item_code": ITEM}, ("item_code",), "viewer", READ),
     ToolSpec("usage_history", "Quantity delivered to customers each week for ONE item, oldest first, to see growth, decline, seasons or lumpy demand.",
              {"item_code": ITEM, "weeks": {"type": "integer", "description": "How many weeks back, 1 to 52 (default 13)"}}, ("item_code",), "viewer", READ),
@@ -67,6 +67,13 @@ TOOLS: tuple[ToolSpec, ...] = (
                                       "presses Send requests. Use it only when a person has asked for prices or quotes.",
              {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity to price; leave out to use the suggested quantity"},
               "reason": {"type": "string", "maxLength": MAX_TEXT_ARG, "description": "One sentence: why, for the approver"}}, ("item_code", "reason"), "approver", PREPARE),
+    ToolSpec("prepare_stock_transfer", "Prepare a request to move stock of ONE item from one warehouse to another, for a person to approve. It moves NOTHING by itself: a person presses "
+                                       "Create transfer, which only makes a draft in ERPNext that someone must still submit there. Use it only when a person has asked for stock to be moved.",
+             {"item_code": ITEM, "qty": {"type": "number", "description": "Quantity to move, in the item's unit"},
+              "from_warehouse": {"type": "string", "maxLength": 140, "description": "The warehouse to take it from, as named in ERPNext"},
+              "to_warehouse": {"type": "string", "maxLength": 140, "description": "The warehouse to move it to, as named in ERPNext"},
+              "reason": {"type": "string", "maxLength": MAX_TEXT_ARG, "description": "One sentence: why, for the approver"}},
+             ("item_code", "qty", "from_warehouse", "to_warehouse", "reason"), "approver", PREPARE),
 )
 SPEC = {t.name: t for t in TOOLS}
 
@@ -142,7 +149,9 @@ class StockTools:
                 "base_daily_use": _r(u.get("base_rate")), "trend": u.get("trend"), "trend_pct": _r(u.get("trend_pct"), 0), "cover_days": _r(a.cover_days_on_hand, 1),
                 "lead_days": _r(a.lead_time_days, 1), "stockout_date": a.stockout_date, "next_arrival": a.next_arrival, "suggested_qty": _r(a.suggested_qty),
                 "suggested_qty_basis": _clip(a.suggested_qty_basis, 200), "reasons": [_clip(r["text"], 200) for r in d.get("reasons", [])][:3], "notes": [_clip(n, 160) for n in a.notes][:3],
-                "data_days": u.get("data_days"), "in_transit_counted_as": (a.policy or {}).get("in_transit_stock")}
+                "data_days": u.get("data_days"), "in_transit_counted_as": (a.policy or {}).get("in_transit_stock"),
+                "by_warehouse": [{"warehouse": _clip(w["warehouse"], 80), "on_hand": _r(w["on_hand"]), "reserved": _r(w["reserved"]), "on_order": _r(w["incoming"]), "in_transit_warehouse": w["in_transit"]}
+                                 for w in a.warehouses[:15]]}
 
     def _usage_history(self, actor: Actor, item_code: str, weeks: int = 13) -> dict[str, Any]:
         item, err = self._item(item_code)
@@ -351,6 +360,15 @@ class StockTools:
         if res["status"] == "refused":
             return {"status": "refused", "error": res["error"], "note": "nothing was prepared"}
         return {k: res.get(k) for k in ("status", "round", "approval_id", "vendors", "cannot_ask", "reply_by", "note") if res.get(k) is not None} | {"item_code": item.code, "qty": _r(qty)}
+
+    def _prepare_stock_transfer(self, actor: Actor, item_code: str, qty: float, from_warehouse: str, to_warehouse: str, reason: str) -> dict[str, Any]:
+        item, err = self._item(item_code)
+        if err:
+            return err
+        res = self.app.transfers.prepare(item.code, qty, from_warehouse, to_warehouse, actor.id, _clip(reason, 300))
+        if res["status"] == "refused":
+            return {"status": "refused", "error": _clip(res["error"], 240), "note": "nothing was prepared"}
+        return {k: (_clip(v, 140) if isinstance(v, str) and k.endswith("warehouse") else _r(v) if k == "qty" else v) for k, v in res.items() if v is not None}
 
     def _decision_history(self, actor: Actor, query: str = "", item_code: Optional[str] = None, days: int = 90, limit: int = 5) -> dict[str, Any]:
         """For an agent: what the record says, with the people left out (who answered is "a person")."""

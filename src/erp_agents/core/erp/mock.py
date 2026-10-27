@@ -13,7 +13,7 @@ from typing import Callable, Optional, Sequence, Any
 from dataclasses import replace
 
 from .base import (CountLine, DailyUsage, ItemInfo, MessageResult, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, ReceiptLine, RequisitionDraft, SalesDue, StockInfo,
-                   SupplierContact, TaxSetup, VendorOffer)
+                   StockTransferDraft, SupplierContact, TaxSetup, VendorOffer, WarehouseStock)
 
 HISTORY_DAYS = 480
 
@@ -33,7 +33,7 @@ class MockItem:
 def _sum_stock(parts: list[StockInfo]) -> StockInfo:
     if not parts:
         return StockInfo(on_hand=0.0)
-    names = [f for f in StockInfo.__dataclass_fields__ if f not in ("next_arrival", "projected")]
+    names = [f for f in StockInfo.__dataclass_fields__ if f not in ("next_arrival", "projected", "by_warehouse")]
     arrivals = [p.next_arrival for p in parts if p.next_arrival]
     return StockInfo(**{f: sum(getattr(p, f) for p in parts) for f in names}, next_arrival=min(arrivals) if arrivals else None)
 
@@ -49,6 +49,7 @@ class MockERP:
         self.purchase_orders: list[dict] = []
         self.po_name_format = "PO-MOCK-{:04d}"                               # tests that need numbers that look like the ERP's (PUR-ORD-2026-00012) set this
         self.requisitions: list[dict] = []
+        self.stock_transfers: list[dict] = []
         self.fail_purchase_orders = False        # tests: simulate the ERP refusing the write
         self.refuse_update = ''                  # tests: when set, changing an order's quantity is refused with this message
         self.refuse_cancel = ''                  # tests: when set, cancelling or deleting an order is refused with this message
@@ -74,11 +75,10 @@ class MockERP:
             if c not in self.items:
                 continue
             item = self.items[c]
-            if not warehouses:
-                out[c] = item.stock
-                continue
-            parts = [s for name, s in (item.by_warehouse or {MAIN_WAREHOUSE: item.stock}).items() if name in warehouses]
-            out[c] = _sum_stock(parts)
+            held = {name: s for name, s in (item.by_warehouse or {MAIN_WAREHOUSE: item.stock}).items() if not warehouses or name in warehouses}
+            places = tuple(sorted((WarehouseStock(name, s.on_hand, s.reserved, s.incoming) for name, s in held.items() if s.on_hand or s.reserved or s.incoming),
+                                  key=lambda p: (-p.on_hand, p.warehouse)))
+            out[c] = replace(item.stock if not warehouses else _sum_stock(list(held.values())), by_warehouse=places)
         return out
 
     def get_purchase_taxes(self, supplier: str, item_code: str, posting_date: date) -> TaxSetup:
@@ -208,6 +208,30 @@ class MockERP:
             cur = self.items[draft.item_code].stock
             self.set_stock(draft.item_code, incoming=cur.incoming + draft.qty, next_arrival=draft.required_by)
         return PurchaseOrderResult(ok=True, name=name)
+
+    def create_stock_transfer(self, draft: StockTransferDraft, acting: Any = None) -> PurchaseOrderResult:
+        """A DRAFT, like the real client: no stock moves until `submit_stock_transfer` (what a person does in ERPNext)."""
+        if self.fail_purchase_orders:
+            return PurchaseOrderResult(ok=False, error="mock ERP refused the stock transfer")
+        for t in self.stock_transfers:
+            if draft.reference and t.get("reference") == draft.reference and t["docstatus"] < 2:       # a retry finds the document it already made
+                return PurchaseOrderResult(ok=True, name=t["name"])
+        name = f"STE-MOCK-{len(self.stock_transfers) + 1:04d}"
+        self.stock_transfers.append({"name": name, "docstatus": 0, "reference": draft.reference, "approved_by": draft.approved_by, "item_code": draft.item_code, "qty": draft.qty,
+                                     "uom": draft.uom, "from_warehouse": draft.from_warehouse, "to_warehouse": draft.to_warehouse, "remarks": draft.remarks,
+                                     "created_by": acting.user if acting is not None else "service account"})
+        return PurchaseOrderResult(ok=True, name=name)
+
+    def submit_stock_transfer(self, name: str) -> None:
+        """Tests and the demo: what submitting the draft in ERPNext does, the stock leaves one warehouse and arrives in the other."""
+        t = next(x for x in self.stock_transfers if x["name"] == name)
+        item = self.items[t["item_code"]]
+        held = dict(item.by_warehouse or {MAIN_WAREHOUSE: item.stock})
+        src, dst = held.get(t["from_warehouse"], StockInfo(on_hand=0.0)), held.get(t["to_warehouse"], StockInfo(on_hand=0.0))
+        held[t["from_warehouse"]], held[t["to_warehouse"]] = replace(src, on_hand=src.on_hand - t["qty"]), replace(dst, on_hand=dst.on_hand + t["qty"])
+        item.by_warehouse = held
+        item.stock = _sum_stock(list(held.values()))
+        t["docstatus"] = 1
 
     def healthcheck(self) -> bool:
         return self.healthy

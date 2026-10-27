@@ -67,6 +67,20 @@ def test_stock_sums_warehouses_and_missing_items_have_zero():
     assert ["warehouse", "in", ["Stores - X"]] in json.loads(c.session.calls[0][1]["filters"])
 
 
+def test_stock_is_also_reported_warehouse_by_warehouse():
+    c = client({"Bin": [
+        {"item_code": "A", "warehouse": "Shop - X", "actual_qty": 40, "reserved_qty": 0, "ordered_qty": 30},
+        {"item_code": "A", "warehouse": "Stores - X", "actual_qty": 100, "reserved_qty": 60, "ordered_qty": 0},
+        {"item_code": "A", "warehouse": "Old - X", "actual_qty": 0, "reserved_qty": 0, "ordered_qty": 0},          # a Bin row stays after the last movement
+        {"item_code": "A", "warehouse": "Transit - X", "actual_qty": 7, "reserved_qty": 0, "ordered_qty": 0},
+    ], "Warehouse": [{"name": "Transit - X", "warehouse_type": "Transit", "is_group": 0, "disabled": 0}], "Purchase Order Item": [], "Purchase Order": []})
+    out = c.get_stock(["A", "B"])
+    assert [(w.warehouse, w.on_hand, w.reserved, w.incoming, w.in_transit) for w in out["A"].by_warehouse] == [
+        ("Stores - X", 100, 60, 0, False), ("Shop - X", 40, 0, 30, False), ("Transit - X", 7, 0, 0, True)]
+    assert (out["A"].on_hand, out["A"].in_transit, out["A"].reserved, out["A"].incoming) == (140, 7, 60, 30)       # the totals are what they were
+    assert out["B"].by_warehouse == ()
+
+
 def test_reserved_includes_production_and_subcontract_and_planned_is_read():
     c = client({"Bin": [
         {"item_code": "A", "actual_qty": 100, "reserved_qty": 10, "reserved_qty_for_production": 5, "reserved_qty_for_sub_contract": 2,
@@ -369,16 +383,17 @@ def test_without_the_erpnext_field_the_order_is_refused_with_the_fix_not_created
     assert not res.ok and "erp-agents erp-setup" in res.error and s.orders == []
 
 
-def test_erp_setup_creates_the_fields_on_both_documents_once():
+def test_erp_setup_creates_the_fields_on_every_document_once():
     s = OrderSession(field_exists=False)
     c = po_client(s)
     assert c.ensure_po_reference_field() == "created"
     made = sorted((f["dt"], f["fieldname"]) for f in s.custom_fields)
     assert made == sorted([("Purchase Order", "custom_agent_ref"), ("Purchase Order", "custom_agent_approved_by"), ("Material Request", "custom_agent_ref"),
-                           ("Material Request", "custom_agent_approved_by"), ("Material Request", "custom_agent_note")])
+                           ("Material Request", "custom_agent_approved_by"), ("Material Request", "custom_agent_note"),
+                           ("Stock Entry", "custom_agent_ref"), ("Stock Entry", "custom_agent_approved_by")])
     assert all(f["fieldtype"] in ("Data", "Small Text") and f["read_only"] == 1 for f in s.custom_fields)
     s.field_exists = True
-    assert c.ensure_po_reference_field() == "exists" and len(s.custom_fields) == 5
+    assert c.ensure_po_reference_field() == "exists" and len(s.custom_fields) == 7
 
 
 def test_the_order_records_who_approved_it_because_erpnext_only_sees_the_service_account():

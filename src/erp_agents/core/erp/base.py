@@ -18,6 +18,16 @@ class ItemInfo:
 
 
 @dataclass(frozen=True)
+class WarehouseStock:
+    """What one warehouse holds of an item (one ERPNext Bin row), so stock can be shown warehouse by warehouse."""
+    warehouse: str
+    on_hand: float
+    reserved: float = 0.0                    # reserved for sales orders
+    incoming: float = 0.0                    # on open purchase orders that deliver here
+    in_transit: bool = False                 # a Transit-type warehouse: this stock is moving between your warehouses, it is not on a shelf
+
+
+@dataclass(frozen=True)
 class StockInfo:
     """Every stock figure the ERP keeps for an item (summed over the chosen warehouses). The owner decides in the
     policy which of them are added to or subtracted from on-hand stock (see STOCK_COLUMNS)."""
@@ -32,6 +42,7 @@ class StockInfo:
     in_transit: float = 0.0                  # stock in warehouses of type Transit (moving between warehouses). NOT part of on_hand: the policy decides what it counts as
     projected: Optional[float] = None        # the ERP's own projected quantity, for comparison only
     next_arrival: Optional[date] = None      # earliest expected receipt of the open purchase orders, if known
+    by_warehouse: tuple[WarehouseStock, ...] = ()   # the same stock split by warehouse (largest first); empty when the ERP cannot say. The figures above are the sum of these
 
 
 # Stock columns the owner can add or subtract: ERPNext Bin field -> (label, StockInfo attribute, how it reads in a sentence).
@@ -169,6 +180,19 @@ class PurchaseOrderResult:
 
 
 @dataclass(frozen=True)
+class StockTransferDraft:
+    """Moving stock from one of your warehouses to another (ERPNext: a Stock Entry of type Material Transfer). One item per transfer."""
+    item_code: str
+    qty: float
+    uom: str
+    from_warehouse: str
+    to_warehouse: str
+    remarks: str = ""                         # why, for whoever opens the draft in the ERP
+    reference: str = ""                       # stable id of the approved request: stored on the document so a retry finds it instead of creating a second one
+    approved_by: str = ""                     # who approved it, e.g. "priya@acme.com via app": stored on the document, because ERPNext only sees the service account
+
+
+@dataclass(frozen=True)
 class ReceiptLine:
     """One line of a goods receipt (ERPNext: Purchase Receipt Item), with what its purchase order line asked for and the invoice against it, if any.
     Prices are in company currency."""
@@ -258,6 +282,16 @@ class FollowUpERP(Protocol):
 
     def send_email(self, recipients: Sequence[str], subject: str, body: str, reference_doctype: str, reference_name: str) -> MessageResult:
         """Send an e-mail through the ERP's own outgoing mail account, recorded on the document (ERPNext: a Communication)."""
+        ...
+
+
+@runtime_checkable
+class TransferERP(Protocol):
+    """Moving stock between warehouses. Optional, like `FollowUpERP`: a connection without it makes the feature say so (call it through `getattr`)."""
+
+    def create_stock_transfer(self, draft: StockTransferDraft, acting: Optional[Any] = None) -> PurchaseOrderResult:
+        """Create a DRAFT stock transfer (ERPNext: a Stock Entry of type Material Transfer); no stock moves until a person submits it in the ERP. Same rules as
+        `create_purchase_order`: `acting` = the approver's own ERP session, the reference makes a retry safe, the approver is recorded on the document."""
         ...
 
 

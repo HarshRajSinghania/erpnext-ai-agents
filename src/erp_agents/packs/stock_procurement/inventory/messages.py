@@ -10,13 +10,14 @@ from datetime import date
 from typing import Optional
 
 from erp_agents.core.approvals.models import ACTION_DETAILS, ApprovalOption, ApprovalRequest, Section
-from erp_agents.core.erp.base import column_phrase
-from .analysis import SEV_CRITICAL, SEV_NAMES, STATUS_BREACH, STATUS_EARLY, Analysis, _d, _n
+from erp_agents.core.erp.base import ItemInfo, column_phrase
+from .analysis import SEV_CRITICAL, SEV_NAMES, STATUS_BREACH, STATUS_EARLY, Analysis, _d, _n, where_stock_is
 from .events import describe
 
 KIND = "inventory.reorder"
 KIND_MONITOR_DOWN = "inventory.monitor_down"
 KIND_ALERT = "inventory.alert"
+KIND_TRANSFER = "inventory.transfer"
 
 
 def build_request(a: Analysis, alert_id: str, policy_sources: Optional[dict[str, str]] = None) -> ApprovalRequest:
@@ -130,6 +131,9 @@ def _situation(a: Analysis) -> list[str]:
     if coming:
         stock_line += " (+ " + "; + ".join(coming) + ")"
     situation.append(stock_line + ".")
+    split = where_stock_is(a)
+    if len(split) > 1:                                      # one warehouse says nothing the line above does not
+        situation.append("By warehouse: " + "; ".join(split) + ".")
     if a.cover_days_on_hand is not None:
         situation.append(
             f"At about {_n(stats.planning_rate, 2)} {u}/day this lasts ~{_n(a.cover_days_on_hand)} days - stock-out around {_d(a.stockout_date)}."
@@ -229,6 +233,36 @@ def build_details(a: Analysis, sources: Optional[dict[str, str]] = None) -> list
         if changed:
             out.append(Section(heading="Where the thresholds come from", lines=changed))
     return out
+
+
+def build_transfer_request(transfer_id: str, item: ItemInfo, qty: float, source: str, destination: str, held_source: dict[str, float], held_destination: dict[str, float],
+                           where: list[str], reason: str = "") -> ApprovalRequest:
+    """Ask a person to move stock from one warehouse to another. `held_source` / `held_destination` are the warehouse's own figures: on_hand and reserved (promised to
+    customers). Answering Create transfer only makes a DRAFT in the ERP: no stock moves until someone submits it there."""
+    u, name = item.uom, item.name
+    src_left, dst_after = held_source["on_hand"] - qty, held_destination["on_hand"] + qty
+    promised = held_source.get("reserved", 0.0)
+    stock = [f"{source}: {_n(held_source['on_hand'])} {u}" + (f" ({_n(promised)} promised to customers)" if promised > 0 else ""),
+             f"{destination}: {_n(held_destination['on_hand'])} {u}"]
+    after = [f"{source} would hold {_n(src_left)} {u} and {destination} {_n(dst_after)} {u}. The total you hold does not change."]
+    if src_left <= 0:
+        after.append(f"That is everything {source} has of it.")
+    if promised > 0 and src_left < promised:
+        after.append(f"Careful: {source} would then hold less than the {_n(promised)} {u} promised to customers from there.")
+    sections = [Section(heading="What happens", lines=[f"Create a draft stock transfer in ERPNext: {_n(qty)} {u} of {name} from {source} to {destination}.",
+                                                       "It is only a draft. No stock moves until someone opens it in ERPNext and submits it."]),
+                Section(heading="Stock now", lines=stock), Section(heading="After the transfer", lines=after)]
+    if reason:
+        sections.insert(0, Section(heading="Why", lines=[reason]))
+    return ApprovalRequest(
+        kind=KIND_TRANSFER, title=f"Move {_n(qty)} {u} of {name} ({item.code}): {source} to {destination}",
+        headline=f"Move {_n(qty)} {u} of {name} from {source} to {destination}.", severity="INFO", sections=sections,
+        details=[Section(heading="Where it is now, warehouse by warehouse", lines=where or ["ERPNext did not say."])],
+        options=[ApprovalOption(action="approve", label="Create transfer", style="primary", description=f"Make a draft transfer of {_n(qty)} {u} in ERPNext"),
+                 ApprovalOption(action="dismiss", label="Don't move it", style="danger", description="Move nothing"),
+                 ApprovalOption(action=ACTION_DETAILS, label="Details", terminal=False, description="Show where the stock is now")],
+        ref_type="stock_transfer", ref_id=transfer_id,
+        facts={"item_code": item.code, "qty": qty, "transfer": transfer_id, "from_warehouse": source, "to_warehouse": destination})
 
 
 def build_monitor_down_request(failures: int, since: str, last_error: str, recent_errors: list[str]) -> ApprovalRequest:

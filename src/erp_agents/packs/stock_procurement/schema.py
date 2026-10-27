@@ -1,5 +1,6 @@
 """The tables of the stock pack: alerts and stock notices, purchase proposals, the "Ask why" answer cache, the chat log and the run log of the two agents; and (version 2)
-the purchasing follow-up: messages to vendors and their replies, delivery chases, goods receipt checks, quote rounds, and the stock count plan.
+the purchasing follow-up: messages to vendors and their replies, delivery chases, goods receipt checks, quote rounds, and the stock count plan; and (version 3) the
+requests to move stock between warehouses.
 
 The core creates its own tables; this pack registers these with `Database.register_schema` (the pack's version is kept apart in `pack_schema`). Every repository and service of
 the pack calls `ensure_schema(db)` when it is built, so a database made before packs existed, which already has these tables, just gets its version row.
@@ -11,14 +12,18 @@ import sqlite3
 from typing import Callable
 
 NAME = "stock_procurement"
-VERSION = 2
+VERSION = 3
 
 
 def _v2(conn: sqlite3.Connection) -> None:
     """Version 2 only adds tables (created by SCHEMA below, which runs after the migrations): nothing in the old ones changes."""
 
 
-MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {2: _v2}
+def _v3(conn: sqlite3.Connection) -> None:
+    """Version 3 only adds a table (stock_transfers): nothing in the old ones changes."""
+
+
+MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {2: _v2, 3: _v3}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alerts (
@@ -191,6 +196,25 @@ CREATE TABLE IF NOT EXISTS count_reviews (
     reviewed_at  TEXT NOT NULL,
     PRIMARY KEY (document, item_code, warehouse)
 );
+
+-- version 3: moving stock between warehouses
+CREATE TABLE IF NOT EXISTS stock_transfers (
+    id              TEXT PRIMARY KEY,    -- also the reference written on the Stock Entry, so a retry finds it
+    item_code       TEXT NOT NULL,
+    qty             REAL NOT NULL,
+    uom             TEXT NOT NULL,
+    from_warehouse  TEXT NOT NULL,
+    to_warehouse    TEXT NOT NULL,
+    status          TEXT NOT NULL,       -- proposed | created | rejected | expired | cancelled
+    entry_name      TEXT,                -- the draft Stock Entry in the ERP
+    reason          TEXT,
+    requested_by    TEXT NOT NULL,
+    approval_id     TEXT,
+    status_note     TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_item ON stock_transfers(item_code, status);
 """
 
 

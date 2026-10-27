@@ -421,7 +421,7 @@ def test_an_older_stock_database_is_upgraded_to_the_follow_up_tables(tmp_path):
     db.execute("INSERT INTO alerts(id, item_code, kind, severity, status, created_at, updated_at, analysis_json, reasoning_text) VALUES ('a1','BOLT-M8','BREACH',3,'awaiting','x','x','{}','low')")
     db.close()
     c = sqlite3.connect(path)                                                                                    # as version 1 left it: no follow-up tables
-    for table in ("vendor_messages", "vendor_replies", "delivery_chases", "receipt_checks", "quote_rounds", "cycle_counts", "count_reviews"):
+    for table in ("vendor_messages", "vendor_replies", "delivery_chases", "receipt_checks", "quote_rounds", "cycle_counts", "count_reviews", "stock_transfers"):
         c.execute(f"DROP TABLE {table}")
     c.execute("UPDATE pack_schema SET version=1 WHERE pack=?", (stock.NAME,))
     c.commit()
@@ -429,8 +429,8 @@ def test_an_older_stock_database_is_upgraded_to_the_follow_up_tables(tmp_path):
     db = Database(str(path))
     AlertRepo(db)
     tables = {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"vendor_messages", "delivery_chases", "quote_rounds", "cycle_counts"} <= tables and db.query_one("SELECT item_code FROM alerts")["item_code"] == "BOLT-M8"
-    assert db.query_one("SELECT version FROM pack_schema WHERE pack=?", (stock.NAME,))["version"] == 2
+    assert {"vendor_messages", "delivery_chases", "quote_rounds", "cycle_counts", "stock_transfers"} <= tables and db.query_one("SELECT item_code FROM alerts")["item_code"] == "BOLT-M8"
+    assert db.query_one("SELECT version FROM pack_schema WHERE pack=?", (stock.NAME,))["version"] == stock.VERSION == 3
     assert list(tmp_path.glob("old.db.before-schema-*"))                                                         # copied aside first
     db.close()
 

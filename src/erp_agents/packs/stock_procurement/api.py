@@ -45,6 +45,14 @@ class QuoteBody(BaseModel):
     vendors: list[str] = Field(default_factory=list, max_length=5, description="Only these suppliers (codes or names). Empty = the best ones on record.")
 
 
+class TransferBody(BaseModel):
+    item_code: str = Field(min_length=1, max_length=140)
+    qty: float = Field(gt=0, le=1_000_000_000, description="In the item's own unit")
+    from_warehouse: str = Field(min_length=1, max_length=140, description="As named in ERPNext (the part before ' - Company' is enough when it is unique)")
+    to_warehouse: str = Field(min_length=1, max_length=140)
+    reason: str = Field("", max_length=300)
+
+
 class PolicyUpdate(BaseModel):
     set: dict[str, Any] = Field(default_factory=dict, description="Fields to override. null switches a nullable threshold off.")
     clear: list[str] = Field(default_factory=list, description="Fields to inherit again.")
@@ -177,6 +185,20 @@ def routes(router: Any, ctx: Any, deps: Any) -> None:
         transit = {"label": IN_TRANSIT_LABEL, "default": DEFAULT_IN_TRANSIT, "modes": list(IN_TRANSIT_MODES)}
         return {"columns": columns, "in_transit": transit, "warehouses": warehouses, "warehouses_error": error,
                 "monitor_columns": [{"column": c, "label": label} for c, label in MONITOR_COLUMNS.items()]}
+
+    @router.get("/api/v1/inventory/transfers")
+    def stock_transfers(limit: int = Query(20, ge=1, le=MAX_LIST_LIMIT), _: Actor = Depends(require("viewer"))) -> list[dict]:
+        """Requests to move stock between warehouses, newest first, with the draft Stock Entry each one made."""
+        return [{k: t[k] for k in ("id", "item_code", "qty", "uom", "from_warehouse", "to_warehouse", "status", "entry_name", "reason", "approval_id", "status_note", "created_at")}
+                for t in ctx.transfers.list(limit=limit)]
+
+    @router.post("/api/v1/inventory/transfers")
+    def prepare_stock_transfer(body: TransferBody, actor: Actor = Depends(require("approver"))) -> dict:
+        """Prepare a request to move stock from one warehouse to another. It creates nothing in ERPNext: a person presses Create transfer, which makes a draft."""
+        res = ctx.transfers.prepare(body.item_code, body.qty, body.from_warehouse, body.to_warehouse, actor.id, body.reason)
+        if res["status"] == "refused":
+            raise HTTPException(404 if res["error"].startswith("no item") else 422, res["error"])
+        return res
 
     @router.get("/api/v1/inventory/analysis/{item_code}")
     def analysis(item_code: str, _: Actor = Depends(require("viewer"))) -> dict:

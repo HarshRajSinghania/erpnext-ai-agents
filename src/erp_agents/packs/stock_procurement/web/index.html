@@ -83,7 +83,9 @@ h1,h2,h3,p{margin:0}
 .tbl{width:100%;border-collapse:collapse}
 .tbl th{text-align:left;font-size:14px;color:var(--muted);font-weight:700;padding:10px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
 .tbl td{padding:14px 16px;border-bottom:1px solid var(--line2);vertical-align:top}.tbl tr:last-child td{border-bottom:0}
-.tbl .r{text-align:right}.tbl small{display:block;color:var(--muted);font-size:13px;line-height:1.35}.tbl tr.best td{background:#F2F8F5}
+.tbl .r{text-align:right}.tbl small{display:block;color:var(--muted);font-size:13px;line-height:1.35}.tbl tr.best td{background:#F2F8F5}.tbl details.wh{margin-top:2px}.tbl details.wh summary{cursor:pointer;color:var(--green-d);font-size:13px;font-weight:700;line-height:1.35}.tbl .whrow{display:flex;justify-content:space-between;gap:14px;font-size:13px;line-height:1.5;text-align:left}.tbl a.mv{font-weight:700;white-space:nowrap;margin-left:6px}
+.mvback{position:fixed;inset:0;background:rgba(27,36,32,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:40}
+.mvbox{background:#fff;border-radius:20px;padding:24px;width:min(520px,100%);max-height:92vh;overflow:auto;display:flex;flex-direction:column;gap:16px;box-shadow:0 12px 40px rgba(27,36,32,.25)}
 .in{min-height:44px;padding:0 12px;border:1.5px solid #BDB7A4;border-radius:10px;background:#fff;font:inherit}
 .in.short{width:96px}.in.changed{border-color:var(--green);background:var(--green-soft)}
 textarea.in{padding:10px 12px;min-height:84px;width:100%}
@@ -322,12 +324,13 @@ function friendlyOption(o) {
   if (o.action === "dismiss") { const d = /(\d+) days/.exec(o.description || ""); if (o.label === "Ignore") return d ? `Ignore for ${d[1]} days` : "Ignore"; if (o.label === "Reject") return "Don't order this"; }
   if (o.action === "details") return "Show all the numbers";
   if (o.label === "Create order") return "Create the order";
+  if (o.label === "Create transfer") return "Create the transfer";
   if (o.label === "Create requisition") return "Create the requisition";
   if (o.action === "requisition") return "Create a requisition instead";
   return o.label;
 }
 // The reasons that matter stay in view; the supporting numbers fold away so a request can be read at a glance.
-const OPEN_SECTIONS = new Set(["Why you are seeing this", "Suggested action", "Recommendation", "Why this vendor", "Other vendors", "What happened", "What this means", "What to do", "What is needed", "Vendors checked", "What happens next", "The order", "If it is not right"]);
+const OPEN_SECTIONS = new Set(["Why you are seeing this", "Suggested action", "Recommendation", "Why this vendor", "Other vendors", "What happened", "What this means", "What to do", "What is needed", "Vendors checked", "What happens next", "The order", "If it is not right", "Why", "What happens", "Stock now", "After the transfer"]);
 function oneSection(s) { return `<div class="why"><b>${esc(SECTION_NAMES[s.heading] || s.heading)}</b><ul>${s.lines.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>`; }
 function sectionsHtml(secs, fold = true) {
   const all = secs || [], shown = fold ? all.filter(s => OPEN_SECTIONS.has(s.heading)) : all, folded = fold ? all.filter(s => !OPEN_SECTIONS.has(s.heading)) : [];
@@ -341,6 +344,7 @@ function requestPill(r) {
   if (q.kind === "procurement.order") return ["ok", "Order created"];
   if (q.kind === "procurement.pr") return ["info", "Purchase requisition"];
   if (q.kind === "procurement.manual") return ["soon", "Needs your decision"];
+  if (q.kind === "inventory.transfer") return ["info", "Move stock"];
   if (q.kind === "inventory.reorder") {
     if (f.kind === "EARLY_WARNING" || /^Heads-up/.test(q.title)) return ["soon", "Heads-up"];
     if (f.on_hand != null && f.on_hand <= 0) return ["urgent", "Out of stock"];
@@ -361,6 +365,8 @@ function factTiles(q) {
   } else if (q.kind === "procurement.order") {
     if (f.qty != null) t.push([fmt(f.qty, 0), "ordered"]);
     if (f.total != null) t.push([money(f.total), "total you pay"]);
+  } else if (q.kind === "inventory.transfer") {
+    if (f.qty != null) t.push([fmt(f.qty, 0), "to move"]);
   } else if (q.kind === "procurement.po" || q.kind === "procurement.pr") {
     if (f.qty != null) t.push([fmt(f.qty, 0), "to order"]);
     if (f.unit_price != null) t.push([money(f.unit_price), "price each"]);
@@ -370,7 +376,7 @@ function factTiles(q) {
 }
 function requestHtml(r, askOn) {
   const q = r.request, [cls, label] = requestPill(r), decide = can("decide");
-  const kindText = { "inventory.reorder": "Reorder request", "procurement.po": "Purchase order", "procurement.pr": "Purchase requisition", "procurement.order": "Your draft order", "procurement.manual": "Needs your decision", "inventory.monitor_down": "Warning", "inventory.alert": "Stock alert" }[q.kind] || "Request";
+  const kindText = { "inventory.reorder": "Reorder request", "procurement.po": "Purchase order", "procurement.pr": "Purchase requisition", "procurement.order": "Your draft order", "procurement.manual": "Needs your decision", "inventory.monitor_down": "Warning", "inventory.alert": "Stock alert", "inventory.transfer": "Stock transfer" }[q.kind] || "Request";
   return `<article class="req" data-id="${esc(r.id)}">
     <div class="req-top"><span class="pill ${cls}">${esc(label)}</span><span class="muted small">${esc(kindText)}${q.facts && q.facts.item_code ? " · " + esc(q.facts.item_code) : ""} · asked ${esc(when(r.created_at))}</span></div>
     <h2 class="h2" style="font-size:22px">${esc(q.title)}</h2>
@@ -378,6 +384,7 @@ function requestHtml(r, askOn) {
     ${q.kind === "inventory.reorder" ? `<p class="muted small" style="margin-top:-4px">"Start reorder" does not buy anything. The assistant first compares your vendors and comes back with a purchase order for you to approve.</p>` : ""}
     ${q.kind === "procurement.po" ? `<div class="callout">If you approve, a draft purchase order is created in ERPNext for you to check. It is not submitted until you submit it there. ${state.me && !state.me.access_key ? "It is created under your own ERPNext name." : ""}</div>` : ""}
     ${q.kind === "procurement.pr" ? `<div class="callout">If you approve, a draft purchase requisition (a Material Request) is created in ERPNext, with the recommended vendor in its note. Your buyer turns it into an order there. ${state.me && !state.me.access_key ? "It is created under your own ERPNext name." : ""}</div>` : ""}
+    ${q.kind === "inventory.transfer" ? `<div class="callout">If you create the transfer, a draft stock transfer is made in ERPNext. No stock moves until you open it there and submit it. ${state.me && !state.me.access_key ? "It is created under your own ERPNext name." : ""}</div>` : ""}
     <div class="btns">${q.options.map(o => `<button class="btn ${o.style === "primary" ? "primary" : o.style === "danger" ? "danger" : o.terminal ? "" : "quiet"}" data-act="${esc(o.action)}" title="${esc(o.description)}" ${decide || !o.terminal ? "" : "disabled"}>${esc(friendlyOption(o))}</button>`).join("")}</div>
     ${decide ? "" : `<p class="muted small">Only people who can create purchase orders in ERPNext can answer requests.</p>`}${askOn ? askBoxHtml(r.id) : ""}</article>`;
 }
@@ -570,6 +577,48 @@ const MONITOR_HEAD = { available: "Stock I can sell", position: "Stock to plan w
   reserved_qty_for_sub_contract: "With subcontractors", reserved_qty_for_production_plan: "Planned for production", ordered_qty: "Ordered from vendors", indented_qty: "Requested inside your company",
   planned_qty: "Being made", arrival_date: "Next delivery", projected_qty: "ERPNext's projected quantity" };
 const qty = (v, i, z) => v == null || (!v && !z) ? `<span class="muted">–</span>` : `${fmt(v, 0)} <span class="muted">${esc(i.uom)}</span>`;
+// Where the stock sits: nothing when ERPNext did not say, a plain line when one warehouse holds it all, otherwise a fold-out list, one row per warehouse.
+function warehouseHtml(i) {
+  const w = (i.by_warehouse || []).filter(x => x.on_hand || x.reserved);
+  if (!w.length) return "";
+  const mv = x => can("decide") && x.on_hand > 0 ? ` <a href="#" class="mv" data-mv="${esc(i.item_code)}" data-from="${esc(x.warehouse)}">Move…</a>` : "";
+  if (w.length === 1 && !w[0].in_transit) return `<small>all in ${esc(w[0].warehouse)}${mv(w[0])}</small>`;
+  const row = x => `<div class="whrow"><span>${esc(x.warehouse)}${x.in_transit ? ` <span class="muted">(on the way)</span>` : ""}${x.reserved > 0 ? ` <span class="muted">· ${fmt(x.reserved, 0)} promised</span>` : ""}${mv(x)}</span><b class="num">${fmt(x.on_hand, 0)}</b></div>`;
+  return `<details class="wh"><summary>${w.length} ${w.length === 1 ? "warehouse" : "warehouses"}</summary>${w.map(row).join("")}</details>`;
+}
+// Move stock from one warehouse to another: this only prepares a request, which then waits under "Needs your OK" (Create transfer makes a draft in ERPNext; nothing moves before that draft is submitted there).
+function openMove(code, from) {
+  const i = state.items.find(x => x.item_code === code), src = i && (i.by_warehouse || []).find(x => x.warehouse === from), all = (state.opts && state.opts.warehouses) || [];
+  if (!i || !src) return;
+  if (all.length < 2) { toast((state.opts && state.opts.warehouses_error) || "ERPNext has no other warehouse to move it to.", true); return; }
+  const held = new Map((i.by_warehouse || []).filter(x => x.on_hand).map(x => [x.warehouse, x.on_hand]));
+  const dest = all.filter(w => w !== from).sort((a, b) => (held.has(b) - held.has(a)) || a.localeCompare(b));
+  const back = document.createElement("div"); back.className = "mvback";
+  back.innerHTML = `<form class="mvbox" role="dialog" aria-modal="true" aria-labelledby="mvt">
+    <div><h2 class="h2" id="mvt">Move ${esc(i.item_name)}</h2><p class="muted small">${esc(i.item_code)} · ${fmt(src.on_hand, 0)} ${esc(i.uom)} in ${esc(from)}${src.reserved > 0 ? `, ${fmt(src.reserved, 0)} promised to customers` : ""}</p></div>
+    <div class="field"><label for="mvto">Move it to</label><select class="in" id="mvto">${dest.map(w => `<option value="${esc(w)}">${esc(w)}${held.has(w) ? ` (has ${fmt(held.get(w), 0)})` : ""}</option>`).join("")}</select></div>
+    <div class="field"><label for="mvq">How many ${esc(i.uom)}?</label><input class="in num" id="mvq" type="number" min="0" max="${src.on_hand}" step="any" required placeholder="up to ${fmt(src.on_hand, 0)}"></div>
+    <div class="field"><label for="mvr">Why? <span class="muted">(optional)</span></label><input class="in" id="mvr" maxlength="300" placeholder="for example: the shop floor is running short"></div>
+    <p class="muted small">This only sends a request to you. Pressing Create transfer on it makes a draft in ERPNext; no stock moves until the draft is submitted there.</p>
+    <div id="mverr" class="callout bad" hidden></div>
+    <div class="btns"><button class="btn primary" type="submit">Prepare the transfer</button><button class="btn" type="button" id="mvx">Cancel</button></div></form>`;
+  document.body.appendChild(back);
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  back.addEventListener("click", e => { if (e.target === back) close(); });
+  $("#mvx", back).addEventListener("click", close);
+  $("#mvq", back).focus();
+  $("form", back).addEventListener("submit", async e => {
+    e.preventDefault();
+    const q = Number($("#mvq", back).value), err = $("#mverr", back), go2 = $("button[type=submit]", back);
+    if (!(q > 0) || q > src.on_hand) { err.textContent = `Enter a number above zero, up to ${fmt(src.on_hand, 0)}.`; err.hidden = false; return; }
+    go2.disabled = true; err.hidden = true;
+    try {
+      await api("POST", "/api/v1/inventory/transfers", { item_code: code, qty: q, from_warehouse: from, to_warehouse: $("#mvto", back).value, reason: $("#mvr", back).value.trim() });
+      close(); toast("Request ready. Press Create the transfer on it to make the draft in ERPNext."); await reload(); state.view = "ok"; render();
+    } catch (x) { err.textContent = x.message; err.hidden = false; go2.disabled = false; }
+  });
+}
 function arrivalHtml(i) {
   if (!i.incoming) return `<span class="muted">–</span>`;
   if (!i.next_arrival) return `<span class="muted">Date not set</span>`;
@@ -597,7 +646,7 @@ function viewStock() {
     const o = i.item_overrides || {}, [cls, label, why] = statusOf(i), own = Object.keys(o).length > 0;
     const inp = k => `<input class="in short num ${o[k] !== undefined ? "changed" : ""}" type="number" min="0" step="any" data-code="${esc(i.item_code)}" data-k="${k}" data-orig="${o[k] ?? ""}" value="${o[k] ?? ""}" placeholder="${i[k] ?? "off"}" aria-label="Reorder when fewer than this many ${k === "min_qty" ? "units" : "days"} are left, ${esc(i.item_name)}" ${settingsOk ? "" : "disabled"}>`;
     return `<tr><td><b>${esc(i.item_name)}</b><small>${esc(i.item_code)} · ${esc(i.group || "")}</small></td>
-      <td class="r num"><b>${fmt(i.on_hand, 0)}</b> ${esc(i.uom)}${i.reserved > 0 ? `<small>${fmt(i.reserved, 0)} promised to customers</small>` : ""}</td>
+      <td class="r num"><b>${fmt(i.on_hand, 0)}</b> ${esc(i.uom)}${i.reserved > 0 ? `<small>${fmt(i.reserved, 0)} promised to customers</small>` : ""}${warehouseHtml(i)}</td>
       ${extra.map(c => monitorCell(c, i)).join("")}
       <td class="r num">${i.cover_days == null ? `<span class="muted">–</span>` : `<b>${fmt(i.cover_days, 0)} days</b>`}<small>${i.daily_use ? "selling about " + fmt(i.daily_use, 0) + " a day" : "no recent sales"}</small>${(i.calendar || []).length ? `<small style="color:var(--green-d);font-weight:700">busy season: ${esc(i.calendar[0].name)}</small>` : ""}</td>
       <td><div class="btns" style="flex-wrap:nowrap">${inp("min_qty")}${inp("min_days_cover")}</div><small class="muted" style="${own ? "color:var(--green-d);font-weight:700" : ""}">${own ? "your own rule for this item" : "using your general rule"}</small></td>
@@ -618,7 +667,7 @@ function viewStock() {
       <div class="scroll"><table class="tbl" style="min-width:${1060 + 130 * extra.length}px"><thead><tr><th>Item</th><th class="r">In stock</th>${extra.map(c => `<th class="r">${esc(MONITOR_HEAD[c] || c)}</th>`).join("")}<th class="r">Lasts about</th>
         <th>Reorder when fewer than…<small style="font-weight:400">units left &nbsp;·&nbsp; days left</small></th><th>What the assistant says</th><th></th></tr></thead>
         <tbody>${rows || `<tr><td colspan="${7 + extra.length}" class="empty">${items.length ? "Nothing matches." : "ERPNext returned no stock items."}</td></tr>`}</tbody></table></div></section>
-    <section class="card"><div class="card-b" style="flex-direction:row;flex-wrap:wrap;gap:32px"><div style="flex:1 1 320px"><h2 class="h3">How to read this</h2><p class="muted" style="margin-top:6px"><b style="color:var(--ink)">In stock</b> is what is on your shelves in ERPNext. <b style="color:var(--ink)">Lasts about</b> is the stock you can sell, divided by how much you sell per day.</p></div>
+    <section class="card"><div class="card-b" style="flex-direction:row;flex-wrap:wrap;gap:32px"><div style="flex:1 1 320px"><h2 class="h3">How to read this</h2><p class="muted" style="margin-top:6px"><b style="color:var(--ink)">In stock</b> is what is on your shelves in ERPNext; open "warehouses" under a number to see where it is kept. <b style="color:var(--ink)">Lasts about</b> is the stock you can sell, divided by how much you sell per day.</p></div>
       <div style="flex:1 1 320px"><h2 class="h3">Want to change the rules for every item?</h2><p class="muted" style="margin-top:6px">Set how low is too low, which warehouses count, and what counts as stock under <a href="#" id="toCfg">Settings → When to reorder</a>. A rule typed in this table only applies to that one item.</p></div></div></section>`;
   $$("#view [data-stab]").forEach(b => b.addEventListener("click", () => { state.stockTab = b.dataset.stab; render(); }));
   const fi = $("#find"); fi.addEventListener("input", () => { state.find = fi.value; const pos = fi.selectionStart; render(); const n = $("#find"); n.focus(); n.setSelectionRange(pos, pos); });
@@ -627,6 +676,7 @@ function viewStock() {
     const tr = inp.closest("tr"); tr.querySelector("[data-save]").disabled = ![...tr.querySelectorAll("input[data-code]")].some(x => x.value !== x.dataset.orig);
   }));
   $$("#view [data-save]").forEach(b => b.addEventListener("click", () => saveItem(b.dataset.save, b.closest("tr"))));
+  $$("#view a[data-mv]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); openMove(a.dataset.mv, a.dataset.from); }));
   $$("#view [data-reset]").forEach(b => b.addEventListener("click", async () => { try { await api("DELETE", "/api/v1/settings/policy/item/" + encodeURIComponent(b.dataset.reset)); toast("Back to the general rule"); await reload(); state.view = "stock"; render(); } catch (e) { toast(e.message, true); } }));
   $("#toCfg").addEventListener("click", e => { e.preventDefault(); go("settings", { cfg: "reorder" }); });
   $("#dry").addEventListener("click", () => runCheck(true)); $("#live").addEventListener("click", () => runCheck(false));

@@ -17,6 +17,8 @@ from .followup.messages import KIND_CHASE, KIND_QUOTE_REQUEST, KIND_QUOTES, KIND
 from .followup.service import FollowUp, StockInsight
 from .inventory.counts import KIND_COUNT_PLAN, KIND_COUNT_VARIANCE
 from .inventory.slow_stock import KIND_SLOW
+from .inventory.messages import KIND_TRANSFER
+from .inventory.transfers import StockTransfers
 from .assistant.chat import ChatService
 from .assistant.conversation import Conversation
 from .assistant.service import AssistantService
@@ -34,7 +36,7 @@ NAME = MANIFEST.name
 # kinds of approval request that are information only: nobody is reminded about them
 NO_REMINDER_KINDS = ("inventory.alert", "procurement.order", KIND_SLOW, KIND_COUNT_PLAN, KIND_COUNT_VARIANCE)
 # kinds whose WhatsApp message carries its own buttons: sent as plain messages, never with the default template (its buttons say Create order / Remind me / Reject)
-WHATSAPP_PLAIN_KINDS = ("procurement.order", KIND_CHASE, KIND_RECEIPT, KIND_QUOTE_REQUEST, KIND_QUOTES, KIND_SLOW, KIND_COUNT_PLAN, KIND_COUNT_VARIANCE)
+WHATSAPP_PLAIN_KINDS = ("procurement.order", KIND_CHASE, KIND_RECEIPT, KIND_QUOTE_REQUEST, KIND_QUOTES, KIND_SLOW, KIND_COUNT_PLAN, KIND_COUNT_VARIANCE, KIND_TRANSFER)
 
 
 class StockProcurementPack(Pack):
@@ -53,7 +55,7 @@ class StockProcurementPack(Pack):
         assistant = AssistantService(app.db, app.settings, app.approvals, alerts, proposals, app.clock)
         chat = ChatService(app.erp, inventory, procurement, proposals, app.approvals, app.settings, app.db, app.clock)
         app.services.update(alerts=alerts, inventory=inventory, proposals=proposals, procurement=procurement, assistant=assistant, chat=chat)
-        app.services.update(followup=FollowUp(app), stock_insight=StockInsight(app))
+        app.services.update(followup=FollowUp(app), stock_insight=StockInsight(app), transfers=StockTransfers(app))
         self._history_context(app)
         app.reschedule_scopes = (*(getattr(app, "reschedule_scopes", None) or ()), "followup")     # changing the follow-up times takes effect without a restart
         inventory.extra_sections.append(app.services["stock_insight"].substitutes.section)       # an approved alternative, when an item is short and cannot come in time
@@ -73,6 +75,7 @@ class StockProcurementPack(Pack):
         tasks = StockAgentTasks(app.agents)
         app.agents.add_tasks(tasks, last=("inventory:brief", "purchasing:review"))
         app.approvals.on_submitted.append(app.agents.on_submitted)          # a second opinion on each new order request, when switched on
+        chat.transfers = app.services["transfers"]                            # "move 50 of X from Stores to Finished Goods" prepares a request, like an order
         chat.agent_fallback = app.agents.answer_for_chat
         chat.agent_background = app.agents.chat_background
         # the chat answers the follow-up questions (late deliveries, receipt differences ...) with the same tools, as the person asking (the core checks the role)
@@ -117,6 +120,10 @@ class StockProcurementPack(Pack):
             if prop is not None:
                 out.append({"heading": "Purchase request", "lines": [f"Vendor {prop.supplier_name or '-'}, {prop.qty or 0:g} at {prop.rate or 0:,.2f}, total {prop.total or 0:,.2f}; "
                                                                      f"status {prop.status}" + (f", order {prop.po_name}" if prop.po_name else "") + (f" ({prop.status_note})" if prop.status_note else "") + "."]})
+            move = app.transfers.by_approval(rec.id)
+            if move is not None:
+                out.append({"heading": "Stock transfer", "lines": [f"{move['qty']:g} {move['uom']} of {move['item_code']} from {move['from_warehouse']} to {move['to_warehouse']}; status {move['status']}"
+                                                                   + (f", draft {move['entry_name']}" if move["entry_name"] else "") + (f" ({move['status_note']})" if move["status_note"] else "") + "."]})
             sent = app.db.query("SELECT supplier, channel, status, error, sent_at FROM vendor_messages WHERE approval_id=? ORDER BY sent_at", (rec.id,))
             if sent:
                 out.append({"heading": "Messages to vendors", "lines": [f"{r['sent_at'][:16].replace('T', ' ')}: to {r['supplier']} by {r['channel']}, {r['status']}"

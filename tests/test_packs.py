@@ -87,7 +87,7 @@ def test_the_real_packs_are_found_and_valid():
     stock = reg.manifests["stock_procurement"]
     assert stock.status == "active" and stock.enabled_by_default and {t.name for t in stock.tools} >= {"stock_overview", "prepare_order_request"}
     prepares = [t for t in stock.tools if t.effect == "prepare"]                                            # the only tools with an effect only prepare an approval request
-    assert [t.name for t in prepares] == ["prepare_order_request", "prepare_quote_request"] and {t.role for t in prepares} == {"approver"}
+    assert [t.name for t in prepares] == ["prepare_order_request", "prepare_quote_request", "prepare_stock_transfer"] and {t.role for t in prepares} == {"approver"}
     for name in ("sales", "finance"):
         m = reg.manifests[name]
         assert m.status == "skeleton" and not m.enabled_by_default and not m.tools and not m.approvals and not m.settings

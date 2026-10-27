@@ -23,7 +23,7 @@ The Stock Assistant has always worked from rules: the same data gives the same a
 
 ## The rules that do not bend
 
-1. **No tool orders, approves, pays or changes a setting.** The only actions are `prepare_order_request` and `prepare_quote_request`, which send the usual approval request. A person still answers it, and no vendor is messaged until a person presses Send. The quote tool is offered to an agent only when the person asked for prices or quotes in so many words, for an item they named, once per question (the same gate as the order tool).
+1. **No tool orders, approves, pays, moves stock or changes a setting.** The only actions are `prepare_order_request`, `prepare_quote_request` and `prepare_stock_transfer`, which send the usual approval request. A person still answers it, no vendor is messaged until a person presses Send, and a transfer only becomes a draft Stock Entry when a person presses Create transfer (no stock moves until it is submitted in ERPNext). `prepare_stock_transfer` is offered to MCP clients, not to the built-in agents. The quote tool is offered to an agent only when the person asked for prices or quotes in so many words, for an item they named, once per question (the same gate as the order tool).
 2. **Numbers come from tools, never from the model.** Every number and item code in an agent's words is checked against what the tools returned that task, plus the numbers in the person's own question. A faithful rounding (12 for 12.3) passes; an invented figure, or a guessing word ("probably"), does not. Only the *results of calls that succeeded* count: a tool call's arguments never do, so a number a model types into a call that was rejected cannot be quoted afterwards. This is safe for the successful calls because the tools echo every argument that is a fact in their result (`usage_history` returns `weeks`, `vendor_options` and `prepare_order_request` return `qty`, `stock_overview` reports its `limit` as `listed`); a test pins each of those, so a tool that stopped echoing would be noticed.
 3. **A rejected answer never reaches a person.** The model gets one chance to fix exactly what was wrong; after that the plain-rules result is used, and the record says so.
 4. **The order tool is fenced twice.** It is offered only to someone who may approve orders in ERPNext *and* only when they asked for an order in so many words ("create a purchase order for BOLT-M8 for 500"); and it may be used only for the item and quantity they named, once per question. The reason approvers read is the person's own sentence, never the model's.
@@ -32,12 +32,12 @@ The Stock Assistant has always worked from rules: the same data gives the same a
 
 ## The tools
 
-All seven are defined in the stock pack ([`src/erp_agents/packs/stock_procurement/tools.py`](../src/erp_agents/packs/stock_procurement/tools.py), declared in its [`manifest.yaml`](../src/erp_agents/packs/stock_procurement/manifest.yaml)) and registered with the core's tool registry ([`core/toolkit.py`](../src/erp_agents/core/toolkit.py)), which checks the caller's role on every call. They are plain Python with no web, HTTP or SQL imports, so they move into a Frappe app unchanged. The MCP server publishes exactly these, with the same names, descriptions and argument descriptions.
+All of them are defined in the stock pack ([`src/erp_agents/packs/stock_procurement/tools.py`](../src/erp_agents/packs/stock_procurement/tools.py), declared in its [`manifest.yaml`](../src/erp_agents/packs/stock_procurement/manifest.yaml)) and registered with the core's tool registry ([`core/toolkit.py`](../src/erp_agents/core/toolkit.py)), which checks the caller's role on every call. They are plain Python with no web, HTTP or SQL imports, so they move into a Frappe app unchanged. The MCP server publishes exactly these, with the same names, descriptions and argument descriptions.
 
 | Tool | Who may use it | Returns |
 |---|---|---|
 | `stock_overview(group?, limit?)` | anyone who can look | Items needing attention, worst first, with the count in each state |
-| `stock_status(item_code)` | look | On hand, available, on order, in transit, daily use, trend, lead time, days of cover, suggested quantity and why |
+| `stock_status(item_code)` | look | On hand (in total and warehouse by warehouse), available, on order, in transit, daily use, trend, lead time, days of cover, suggested quantity and why |
 | `usage_history(item_code, weeks?)` | look | Weekly quantities delivered to customers (totals; no customer is named) |
 | `vendor_options(item_code, qty)` | look | Vendors compared for that quantity: price, duties and taxes, delivery, on-time record, score |
 | `open_orders(item_code?, kind?)` | look | Open or draft purchase orders / requisitions with ordered, received and still-to-come quantity |
@@ -52,6 +52,7 @@ All seven are defined in the stock pack ([`src/erp_agents/packs/stock_procuremen
 | `stock_counts(kind?)` | look | This week's count list, or recent count differences with what explains them |
 | `decision_history(query?, item_code?, days?, limit?)` | look | Past decisions and why: what each request said, which button ended it and what came of it, and settings changes. Never who answered: "a person" |
 | `prepare_quote_request(item_code, reason, qty?)` | approvers | Prepares a request to ask two or three vendors for a price. Messages no vendor: a person presses Send requests |
+| `prepare_stock_transfer(item_code, qty, from_warehouse, to_warehouse, reason)` | approvers | Prepares a request to move stock from one warehouse to another, checked against what the source holds. Creates nothing: a person presses Create transfer, which makes a draft Stock Entry |
 
 Every call is checked against the caller's ERPNext-derived level, and logged (who, how, which tool, which arguments, whether it worked) in `tool_calls`. Results are capped at 7,000 characters. Numbers sent as text by a small model (`"500"`, `"1,200"`) are accepted; a wrong value is an error the model can read and correct.
 

@@ -111,6 +111,19 @@ the reorder rules use the position, and the approval message lists every column 
 Set it in the console (*Stock Monitor → How stock is calculated*), or per group/item over the API/CLI, e.g.
 `erp-agents policy set --scope group --key Fasteners 'warehouses=["Stores - AC"]' 'stock_subtract=[]'`.
 
+**Stock by warehouse**: every figure above is one combined number, but you can always see where it sits. The Your stock page has a *warehouses* fold-out under each
+*In stock* number (or "all in Stores - X" when one warehouse holds it all), a chat answer about an item adds "By warehouse: ...", the `stock_status` tool returns
+`by_warehouse`, and a reorder request that has stock in several warehouses has a "By warehouse" line. The split follows the list of warehouses that count, so it always
+adds up to the number shown. Stock in a warehouse you do not want counted (quarantine, scrap) is then easy to spot and to leave out.
+
+**Moving stock between warehouses.** Open the *warehouses* fold-out (or the "all in ..." line) on the Your stock page and press **Move...** next to the warehouse to
+take it from, or type to the chat: `move 50 BOLT-M8 from Stores to Finished Goods` (a warehouse can be named without its company when that is unique; the words *from*
+and *to* say which is which), or ask an AI client through the `prepare_stock_transfer` tool, or `POST /api/v1/inventory/transfers`. It is checked against what ERPNext
+holds in the source warehouse (never more than it has; a note when it would leave less than is promised to customers) and sent to the approvers as a request showing the
+stock before and after. Pressing **Create transfer** makes a **draft** Stock Entry of type Material Transfer in ERPNext, with the approver recorded (under their own
+ERPNext login when they answer from the console); **no stock moves until someone submits that draft in ERPNext**, the same rule as a purchase order. Only people who can
+approve may ask; the assistant never starts a transfer by itself. It needs the *Stock Entry* create permission (see `erp-check-access`) and one run of `erp-agents erp-setup`.
+
 **Stock in transit** (stock moving between your own warehouses, held in an ERPNext warehouse of type *Transit*) is reported apart from on-hand stock, and
 **you choose what it counts as** (`in_transit_stock`; in the console, the row *On the way between your warehouses* under *What counts as stock you have?*):
 `arriving` (the default) adds it to the stock *position*, so no reorder is started for goods that are already on their way, but it is not available to sell and does
@@ -185,10 +198,11 @@ sending anything.
    ```
 3. Set the secrets (PowerShell): `$env:ERPNEXT_API_KEY="..."; $env:ERPNEXT_API_SECRET="..."`
 4. `erp-agents erp-check` and compare the quantities with **Stock > Stock Balance**.
-5. **Once**, as a person who may create Custom Fields: `erp-agents erp-setup`. It adds two read-only fields to
-   *Purchase Order*: the proposal reference (makes order creation safe to retry: one approval can never create two
-   orders) and "Approved by (Stock Assistant)" (ERPNext only sees the service account, so the real approver is
-   written on the order). Until it has run, orders are refused with that instruction.
+5. **Once**, as a person who may create Custom Fields: `erp-agents erp-setup`. It adds read-only fields to
+   *Purchase Order*, *Material Request* and *Stock Entry* (for a stock transfer): the proposal reference (makes creation
+   safe to retry: one approval can never create two documents) and "Approved by (Stock Assistant)" (ERPNext only sees the
+   service account, so the real approver is written on the document). Until it has run, orders, requisitions and
+   transfers are refused with that instruction. Run it again after updating to a version that adds a document.
 
 ### 4b. Signing in, and who can do what
 
@@ -241,8 +255,8 @@ for that person to create the document:
 Set `require_personal_login` (Settings > Choosing vendors) if approvals without a personal session should wait for the console instead
 of being created by the service account. Because ERPNext applies the person's own permissions, an approver needs the roles ERPNext
 itself requires to create the document (in a default ERPNext: *Purchase User* **and** *Purchase Manager*; Purchase Manager alone cannot
-read Addresses, which a purchase order links to). Run `erp-agents erp-setup` once: it adds the proposal reference, approver and note
-fields to Purchase Order and Material Request.
+read Addresses, which a purchase order links to; for a stock transfer, a role that may create a *Stock Entry*, such as *Stock User*). Run `erp-agents erp-setup`
+once: it adds the proposal reference, approver and note fields to Purchase Order, Material Request and Stock Entry.
 
 **Access keys.** Ordinary users never need one. The keys in `auth.tokens` are accepted only on the server machine itself
 (`auth.access_keys: local`, the default, **with or without ERPNext sign-in: the demo too**), never through the public tunnel, and the sign-in
@@ -717,7 +731,7 @@ cannot reach (an e-mail to yourself, a note in ERPNext).
 - The MCP endpoint over HTTP is private by design (the server machine only unless `mcp.remote` and `mcp.allowed_hosts` are set) and takes static bearer tokens: it is **not** an OAuth-protected MCP server and AI products that discover servers by themselves cannot use it. Use stdio, or your own private network (docs/AGENTS.md says what real OAuth support would take).
 - Recipients and channel credentials are in `settings.yaml` (restart to change); only thresholds and
   the schedule are editable live.
-- Single warehouse view (all warehouses summed, or the ones listed). No per-warehouse reorder levels.
+- Reorder decisions use one combined figure (all warehouses summed, or the ones listed); stock is *shown* warehouse by warehouse, but there are no per-warehouse reorder levels.
 - Usage is derived from outgoing movements; it does not know about planned promotions or one-off
   bulk orders (the "busy week" line and confidence notes flag lumpy demand, but they do not remove it).
 - ERPNext adapter: tested against v16 only. PO arrival dates come from `schedule_date`.

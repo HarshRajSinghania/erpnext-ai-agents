@@ -59,7 +59,7 @@ A plan, not code. Check each key against the target version.
 | `app_name`, `app_title`, `app_publisher`, `app_description`, `app_email`, `app_license` | identity; the licence string must say GPL-3.0 in the form `bench` expects; the name must be unique on the Marketplace (undecided) |
 | `required_apps = ["erpnext"]` | declares the dependency on ERPNext |
 | `after_install`, `before_uninstall`, `after_migrate` | create the roles and custom fields, sync the pack manifests into the Pack table, remove what the app added on uninstall |
-| `fixtures` | the custom fields the app needs on Purchase Order and Material Request (`custom_agent_ref`, approver, note), as `Custom Field` records filtered to this app, replacing `erp-agents erp-setup` |
+| `fixtures` | the custom fields the app needs on Purchase Order, Material Request and Stock Entry (`custom_agent_ref`, approver, note), as `Custom Field` records filtered to this app, replacing `erp-agents erp-setup` |
 | `scheduler_events` | a `cron` entry or two for the stock check, the 3-minute procurement pass, reminders and expiry. A schedule that an administrator edits (`check_cron`, the brief) cannot live in `hooks.py`, so a frequent tick job asks the settings whether anything is due |
 | `doc_events` | optional: react to a Purchase Order submitted or cancelled by hand, instead of polling the ERP |
 | `has_permission`, `permission_query_conditions` | the Approval Request rule above; each person sees the requests they may answer |

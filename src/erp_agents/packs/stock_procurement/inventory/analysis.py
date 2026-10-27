@@ -85,6 +85,7 @@ class Analysis:
     planned: float = 0.0                           # open production work orders (ditto)
     in_transit: float = 0.0                        # stock in transit warehouses (shown whether or not the policy counts it)
     breakdown: list[dict[str, Any]] = field(default_factory=list)   # every stock column, and how the policy uses it
+    warehouses: list[dict[str, Any]] = field(default_factory=list)  # the same stock warehouse by warehouse (largest first): warehouse, on_hand, reserved, incoming, in_transit
     projected: Optional[float] = None              # the ERP's own projected quantity (comparison only)
     windows: list[Any] = field(default_factory=list)   # calendar events applied to this item (see inventory/events.py)
     next_arrival: Optional[str] = None
@@ -250,7 +251,7 @@ def analyze_item(
     shelf = stock.on_hand + (transit if policy.in_transit_stock == "shelf" else 0.0)       # stock in transit counts as on the shelf only if the owner says so
     a = Analysis(
         item_code=item.code, item_name=item.name, item_group=item.group, uom=item.uom, as_of=today.isoformat(),
-        on_hand=shelf, in_transit=transit, incoming=stock.incoming, planned=stock.planned, projected=stock.projected,
+        on_hand=shelf, in_transit=transit, incoming=stock.incoming, planned=stock.planned, projected=stock.projected, warehouses=[asdict(w) for w in stock.by_warehouse],
         next_arrival=stock.next_arrival.isoformat() if stock.next_arrival else None,
         safety_days=policy.safety_stock_days,
         policy={k: v for k, v in policy.model_dump().items()},
@@ -583,3 +584,15 @@ def _n(v: Optional[float], digits: int = 1) -> str:
 
 def _d(iso_date: Optional[str]) -> str:
     return date.fromisoformat(iso_date).strftime("%d %b") if iso_date else "n/a"
+
+
+def where_stock_is(a: Analysis) -> list[str]:
+    """Where the stock sits, one phrase per warehouse that holds some, largest first: "Stores - TTC 120 pcs", "Goods In Transit - TTC 30 pcs (in transit)".
+    Empty when the ERP did not say, or nothing is held. The quantities are on-hand; what is promised to customers is added when there is some."""
+    out = []
+    for w in a.warehouses:
+        if not (w["on_hand"] or w["reserved"]):
+            continue
+        extra = (["in transit"] if w["in_transit"] else []) + ([f"{_n(w['reserved'])} promised to customers"] if w["reserved"] > 0 else [])
+        out.append(f"{w['warehouse']} {_n(w['on_hand'])} {a.uom}" + (f" ({', '.join(extra)})" if extra else ""))
+    return out

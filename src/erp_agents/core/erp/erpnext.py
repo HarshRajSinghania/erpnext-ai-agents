@@ -44,7 +44,7 @@ from urllib.parse import quote
 
 from ..netguard import no_redirects
 from .base import (STOCK_COLUMNS, CountLine, DailyUsage, ItemInfo, MessageResult, PurchaseOrderDraft, PurchaseOrderResult, QuoteRule, ReceiptLine, RequisitionDraft, SalesDue,
-                   StockInfo, SupplierContact, TaxRow, TaxSetup, VendorOffer)
+                   StockInfo, StockTransferDraft, SupplierContact, TaxRow, TaxSetup, VendorOffer, WarehouseStock)
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +184,7 @@ class ERPNextClient:
         totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         projected: dict[str, float] = defaultdict(float)
         has_projected: set[str] = set()
+        places: dict[str, list[WarehouseStock]] = defaultdict(list)
         for chunk in _chunks(item_codes, 100):
             filters: list = [["item_code", "in", list(chunk)]]
             if wh:
@@ -195,6 +196,10 @@ class ERPNextClient:
                 totals[code]["in_transit" if r.get("warehouse") in transit else "on_hand"] += float(r.get("actual_qty") or 0)      # reported apart: the owner decides what it counts as
                 for field, (_label, attr, _phrase) in STOCK_COLUMNS.items():
                     totals[code][attr] += float(r.get(field) or 0)
+                place = WarehouseStock(str(r.get("warehouse") or "(no warehouse)"), float(r.get("actual_qty") or 0), float(r.get("reserved_qty") or 0), float(r.get("ordered_qty") or 0),
+                                       r.get("warehouse") in transit)
+                if place.on_hand or place.reserved or place.incoming:          # a Bin row stays after the last movement: empty ones would only clutter the list
+                    places[code].append(place)
                 if r.get("projected_qty") is not None:
                     projected[code] += float(r["projected_qty"])
                     has_projected.add(code)
@@ -203,7 +208,7 @@ class ERPNextClient:
         # Items without a Bin row simply have zero stock.
         return {
             code: StockInfo(**{k: v for k, v in totals[code].items()}, projected=projected[code] if code in has_projected else None,
-                            next_arrival=arrivals.get(code)) if code in totals else StockInfo(on_hand=0.0)
+                            next_arrival=arrivals.get(code), by_warehouse=tuple(sorted(places[code], key=lambda p: (-p.on_hand, p.warehouse)))) if code in totals else StockInfo(on_hand=0.0)
             for code in item_codes
         }
 
@@ -628,6 +633,27 @@ class ERPNextClient:
             body[MR_NOTE_FIELD] = draft.note[:900]
         return self._post_document("Material Request", body, acting, "purchase requisition")
 
+    def create_stock_transfer(self, draft: StockTransferDraft, acting: Optional[Any] = None) -> PurchaseOrderResult:
+        """POST a Stock Entry of type Material Transfer. Draft, never submitted: the stock moves when a person submits it in ERPNext. The line carries its unit and conversion
+        factor (1: the quantity is in the item's stock unit), because ERPNext only fills them in its screen, not for a document created through the API."""
+        if draft.from_warehouse == draft.to_warehouse:
+            return PurchaseOrderResult(ok=False, error="the two warehouses are the same")
+        line = {"item_code": draft.item_code, "qty": draft.qty, "uom": draft.uom, "stock_uom": draft.uom, "conversion_factor": 1, "transfer_qty": draft.qty,
+                "s_warehouse": draft.from_warehouse, "t_warehouse": draft.to_warehouse}
+        body: dict[str, Any] = {"stock_entry_type": "Material Transfer", "purpose": "Material Transfer", "posting_date": date.today().isoformat(),
+                                "from_warehouse": draft.from_warehouse, "to_warehouse": draft.to_warehouse, "items": [line]}
+        if draft.remarks:
+            body["remarks"] = draft.remarks[:900]
+        company, problem = self._company_for_new_document()
+        if problem:
+            return PurchaseOrderResult(ok=False, error=problem)
+        if company:
+            body["company"] = company
+        found = self._reference_guard("Stock Entry", draft.reference, draft.approved_by, body)
+        if found is not None:
+            return found
+        return self._post_document("Stock Entry", body, acting, "stock transfer")
+
     # ---------------------------------------------------------------- reading documents (for the chat and status questions)
     _DOC_SPECS = {
         "Purchase Order": dict(child="Purchase Order Item", party="supplier_name", party_id="supplier", date="transaction_date", due="schedule_date", total="grand_total", currency="currency",
@@ -835,6 +861,10 @@ class ERPNextClient:
             (PO_APPROVER_FIELD, PO_APPROVER_LABEL, "Data", PO_REF_FIELD, 0, "Who approved this in the Stock Assistant, and where from. Do not edit."),
             (MR_NOTE_FIELD, MR_NOTE_LABEL, "Small Text", PO_APPROVER_FIELD, 0, "The Stock Assistant's recommendation (vendor, price, delivery) for the buyer. Do not edit."),
         ),
+        "Stock Entry": (
+            (PO_REF_FIELD, PO_REF_LABEL, "Data", "company", 1, "Set by the Stock Assistant when an approved request creates this stock transfer. Do not edit."),
+            (PO_APPROVER_FIELD, PO_APPROVER_LABEL, "Data", PO_REF_FIELD, 0, "Who approved this in the Stock Assistant, and where from. Do not edit."),
+        ),
     }
 
     # ---------------------------------------------------------------- purchasing follow-up and stock intelligence (FollowUpERP in base.py)
@@ -1007,7 +1037,7 @@ class ERPNextClient:
 
 
     def ensure_po_reference_field(self) -> str:
-        """Create the fields the Stock Assistant writes on Purchase Order and Material Request if missing.
+        """Create the fields the Stock Assistant writes on Purchase Order, Material Request and Stock Entry if missing.
         Returns 'exists' or 'created'. Needs the Custom Field permission (a one-time job for an administrator)."""
         made = False
         for doctype, fields in self.CUSTOM_FIELDS.items():

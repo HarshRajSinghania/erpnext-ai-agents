@@ -24,14 +24,14 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from erp_agents.core.common import Clock, iso, untrusted, utcnow
 from erp_agents.core.policy import AssistantSettings
 from erp_agents.core.settings_store import SettingsStore
 from erp_agents.core.storage import Database, dumps, loads
 from erp_agents.core.erp.base import ERPClient, ItemInfo
-from ..inventory.analysis import _d, _n
+from ..inventory.analysis import _d, _n, where_stock_is
 from erp_agents.core.assistant.facts import Fact
 from erp_agents.core.assistant.llm import LLMClient, LLMError, OllamaClient
 from erp_agents.core.assistant.verify import NOT_ENOUGH, verify
@@ -121,6 +121,51 @@ def wants_manage(q: str) -> Optional[str]:
     return None if set(tokens(body)) & NOT_AN_INSTRUCTION else kind
 
 
+# Moving stock between warehouses is an instruction too: it must START with the verb ("move 50 of BOLT-M8 from Stores to Finished Goods", "transfer BOLT-M8 from Stores to Shop floor").
+TRANSFER_VERBS = {"move", "transfer", "shift", "relocate"}
+TRANSFER_QTY = re.compile(r"\b(?:move|transfer|shift|relocate)\s+(?:about\s+|around\s+|approximately\s+)?(\d[\d,]*(?:\.\d+)?)(?![-\w.])")
+TRANSFER_ROLE = re.compile(r"\b(from|to|into)\s+(?:the\s+)?$")
+
+
+def wants_transfer(q: str) -> bool:
+    """True when the person tells me to move stock between warehouses (a question such as 'what happens if I move it?' is not an instruction)."""
+    body = ORDER_POLITE.sub("", q.strip().rstrip("?.! ")).strip()
+    words = body.split()
+    return bool(words) and words[0] in TRANSFER_VERBS and not (set(tokens(body)) & NOT_AN_INSTRUCTION)
+
+
+def find_warehouses(q: str, known: Sequence[str]) -> tuple[Optional[str], Optional[str], bool]:
+    """(the warehouse to take it from, the one to move it to, whether the wording was unclear) for a question written in lower case. A warehouse is named in full or without its
+    company ("Stores" for "Stores - TTC") when that is unique. The word before a name says which it is ("from Stores", "to Finished Goods"); two names with no such word are
+    read in the order written. Anything else is unclear: the caller asks."""
+    names: dict[str, str] = {}
+    for w in known:
+        names[w.lower()] = w
+    short: dict[str, list[str]] = {}
+    for w in known:
+        short.setdefault(w.lower().split(" - ")[0], []).append(w)
+    names.update({s: ws[0] for s, ws in short.items() if len(ws) == 1 and s not in names})
+    found: list[tuple[int, int, str]] = []                                  # (start, end, warehouse), longest names first so "stores - ttc" wins over "stores"
+    for text in sorted(names, key=len, reverse=True):
+        for m in re.finditer(r"(?<![\w-])" + re.escape(text) + r"(?![\w-])", q):
+            if not any(s < m.end() and m.start() < e for s, e, _ in found):
+                found.append((m.start(), m.end(), names[text]))
+    found.sort()
+    ordered = list(dict.fromkeys(w for _s, _e, w in found))
+    src = dst = None
+    for s, _e, w in found:
+        role = TRANSFER_ROLE.search(q[max(0, s - 12):s])
+        if role and role.group(1) == "from" and src is None:
+            src = w
+        elif role and role.group(1) in ("to", "into") and dst is None:
+            dst = w
+    if src and dst and src != dst:
+        return src, dst, False
+    if len(ordered) == 2 and src is None and dst is None:
+        return ordered[0], ordered[1], False
+    return src, dst, bool(ordered)
+
+
 APPROVAL_RE = re.compile(r"\b(approve|approvals?|waiting for (?:my|me)|need(?:s)? my ok|my ok|awaiting my)\b")
 STATUS_FILTERS = {"open": "open", "pending": "open", "waiting": "open", "draft": "draft", "drafts": "draft", "received": "done", "delivered": "done", "completed": "done", "complete": "done",
                   "done": "done", "overdue": "overdue", "late": "overdue", "delayed": "overdue", "cancelled": "cancelled", "canceled": "cancelled", "submitted": "submitted"}
@@ -131,8 +176,9 @@ HELP = ("I can answer questions about your stock, your vendors and your purchase
         "• Which purchase requisitions did we create this week?\n• What is waiting for my OK?\n"
         "• Create a purchase order for {example} for 500\n"
         "• Edit PO PUR-ORD-2026-00012 (change its quantity or vendor), or Cancel PO PUR-ORD-2026-00012 (only orders I created)\n"
-        "I only read information. I can prepare an order request for you to approve, but only its Create order button orders anything. "
-        "I cancel an order only after you confirm.")
+        "• Move 50 {example} from Stores to Finished Goods (I prepare a transfer request; you press Create transfer)\n"
+        "I only read information. I can prepare an order or transfer request for you to approve, but only its Create order or Create transfer button does anything, "
+        "and a transfer only makes a draft in ERPNext. I cancel an order only after you confirm.")
 
 REPLY_SCHEMA = {"type": "object", "properties": {"answerable": {"type": "boolean"}, "answer": {"type": "string"}, "facts_used": {"type": "array", "items": {"type": "string"}}},
                 "required": ["answerable", "answer", "facts_used"]}
@@ -181,6 +227,9 @@ class Plan:
     bad_qty: bool = False                                     # a quantity was written but is zero, negative or not a plain number
     period_given: bool = False                                # the question names a period ("this week", "last 14 days"): otherwise open orders are shown whatever their age
     manage: Optional[str] = None                              # "cancel" | "edit": the person wants an order that exists taken back or changed
+    from_warehouse: Optional[str] = None                      # a stock transfer: the warehouse named as the source, the one named as the destination
+    to_warehouse: Optional[str] = None
+    warehouse_unclear: bool = False                           # warehouses were named but not which is which, or only one
     original: str = ""                                        # the question as it was typed (a vendor's name is told by its capital letters)
     text: str = ""                                            # the question, lower case (a follow-up answer reads its wording, e.g. count plan or count differences)
 
@@ -246,7 +295,8 @@ def parse_days(question: str) -> int:
     return 30
 
 
-def understand(question: str, items: list[ItemInfo], context: Optional[dict[str, Any]] = None) -> Plan:
+def understand(question: str, items: list[ItemInfo], context: Optional[dict[str, Any]] = None, warehouses: Sequence[str] = ()) -> Plan:
+    """`warehouses` = the names of the ERP's warehouses; needed only to read a request to move stock from one to another."""
     q = " ".join(question.lower().split())
     toks = tokens(q)
     qs = set(toks)
@@ -283,6 +333,15 @@ def understand(question: str, items: list[ItemInfo], context: Optional[dict[str,
     follow = followup_intent(q)
     if plan.manage:
         plan.intent = "order_manage"
+    elif not plan.docs and wants_transfer(q):
+        plan.intent = "stock_transfer"
+        m = TRANSFER_QTY.search(q)
+        if m:
+            said = float(m.group(1).replace(",", ""))
+            plan.qty, plan.bad_qty = (said if said > 0 else None), said <= 0
+        else:
+            plan.bad_qty = plan.qty is None and bool(re.search(r"\b(?:move|transfer|shift|relocate)\s+-?\d[\d,]*(?:\.\d+)?(?![-\w.])", q))
+        plan.from_warehouse, plan.to_warehouse, plan.warehouse_unclear = find_warehouses(q, warehouses)
     elif not plan.docs and wants_order(q):
         plan.intent = "order_request"
     elif follow == "decision_history" or (follow and not plan.docs):
@@ -363,8 +422,10 @@ class ChatService:
         self.tool: Optional[Callable[[str, dict[str, Any], str], dict[str, Any]]] = None             # (tool, arguments, who asks) -> the tool's result, with the core's role check (set by the pack)
         self._asked: dict[str, deque] = {}
         self._lock = threading.Lock()
+        self.transfers: Optional[Any] = None             # the stock transfer service (prepares the request to move stock); set by the pack
         self._items_cache: tuple[float, list[ItemInfo]] = (0.0, [])
         self._overview_cache: tuple[float, list[dict]] = (0.0, [])
+        self._warehouse_cache: tuple[float, list[str]] = (0.0, [])
 
     # ------------------------------------------------------------------ small helpers
     def _items(self) -> list[ItemInfo]:
@@ -372,6 +433,19 @@ class ChatService:
         if now - self._items_cache[0] > 300 or not self._items_cache[1]:
             self._items_cache = (now, self.erp.list_items())
         return self._items_cache[1]
+
+    def _warehouses_for(self, question: str) -> list[str]:
+        """The ERP's warehouse names, read only when the question is an instruction to move stock (the list is kept for a few minutes). Empty when the ERP cannot say."""
+        if not wants_transfer(" ".join(question.lower().split())):
+            return []
+        now = time.monotonic()
+        if now - self._warehouse_cache[0] > 300 or not self._warehouse_cache[1]:
+            try:
+                self._warehouse_cache = (now, self.erp.list_warehouses())
+            except Exception as exc:  # noqa: BLE001 - the person is asked to name the warehouses again instead
+                log.warning("could not read the warehouses for a transfer request: %s", untrusted(exc, 200))
+                return []
+        return self._warehouse_cache[1]
 
     def _overview(self) -> list[dict]:
         now = time.monotonic()
@@ -422,7 +496,7 @@ class ChatService:
         routed = False
         try:
             items = self._items()
-            plan = understand(question, items, context)
+            plan = understand(question, items, context, self._warehouses_for(question))
             if plan.intent is None:
                 plan.intent = self._route_with_ai(question)
                 routed = plan.intent is not None
@@ -464,6 +538,8 @@ class ChatService:
             return {"status": "not_enough_information", "answer": "There is nothing to explain here: ask me to prepare the order request again, or use the one already waiting.", "facts": []}
         if plan.intent == "order_manage":                           # nor open the buttons that change or cancel an order
             return {"status": "not_enough_information", "answer": "There is nothing to explain here: ask me to change or cancel the order again.", "facts": []}
+        if plan.intent == "stock_transfer":                         # nor prepare a transfer request
+            return {"status": "not_enough_information", "answer": "There is nothing to explain here: ask me to prepare the transfer again, or use the request already waiting.", "facts": []}
         if plan.intent is None:
             plan.intent = self._route_with_ai(question)
         ans = self._run(plan, items, can_decide)
@@ -507,6 +583,8 @@ class ChatService:
             return self._order_request(plan, can_decide, sample)
         if plan.intent == "order_manage":
             return self._order_manage(plan, can_decide, sample)
+        if plan.intent == "stock_transfer":
+            return self._stock_transfer(plan, can_decide, sample)
         if plan.intent is None or plan.intent not in INTENTS:
             if plan.near:
                 return self._ask_which(plan.near, "I could not tell exactly which item you mean.")
@@ -756,6 +834,45 @@ class ChatService:
                       actions=[{"label": "Open the request", "view": "ok", "approval_id": rec.id}], items=[prop.item_code], status="confirm",
                       extra={"expect": {"approval_id": rec.id, "action": "cancel_order", "choices": [{"id": "yes", "label": "Yes, cancel it"}, {"id": "no", "label": "No, keep it"}]}})
 
+    def _stock_transfer(self, plan: Plan, can_decide: bool, sample: str) -> Answer:
+        """'Move 50 of X from Stores to Finished Goods': prepare the request for the person to answer (Create transfer / Reject). It creates NOTHING in the ERP and moves no
+        stock, and only someone who may approve can ask. A request already waiting for the same move is shown again, not duplicated. Anything unclear is asked, never guessed."""
+        if not can_decide:
+            return Answer("stock_transfer", "Only people who can approve can ask me to prepare a stock transfer. You can see what is waiting under Needs your OK.", actions=[{"label": "Open Needs your OK", "view": "ok"}])
+        if self.transfers is None:
+            return Answer("stock_transfer", "I cannot prepare stock transfers here.", status="error")
+        example = f"move 50 {sample} from Stores to Finished Goods"
+        if not plan.items and plan.near:
+            return self._ask_which(plan.near, "I could not tell exactly which item you mean.")
+        if not plan.items:
+            return Answer("stock_transfer", f"Which item should be moved? Give me its code or full name, for example: {example}.", status="clarify", follow_ups=[example])
+        if len(plan.items) > 1:
+            return self._ask_which(plan.items[:8], "A transfer is for one item at a time.")
+        it = plan.items[0]
+        a, _src = self.inventory.analyze_one(it.code)
+        held = where_stock_is(a)
+        here = f" {it.name} ({it.code}) is held in: " + "; ".join(held) + "." if held else ""
+        if plan.bad_qty or (plan.qty is not None and not (0 < plan.qty <= 1_000_000_000)):
+            return Answer("stock_transfer", "The quantity must be a plain number above zero, for example: " + f"move 50 {it.code} from Stores to Finished Goods.", status="clarify", items=[it.code])
+        if plan.qty is None:
+            return Answer("stock_transfer", f"How many {a.uom} of {it.name} should be moved?{here} For example: move 50 {it.code} from Stores to Finished Goods.", status="clarify", items=[it.code],
+                          follow_ups=[f"Move 50 {it.code} from Stores to Finished Goods"])
+        if not (plan.from_warehouse and plan.to_warehouse):
+            what = "I could not tell which warehouse is which." if plan.warehouse_unclear else "Which warehouses?"
+            return Answer("stock_transfer", f"{what} Say it like this: move {_n(plan.qty)} {it.code} from <warehouse> to <warehouse>.{here}", status="clarify", items=[it.code])
+        res = self.transfers.prepare(it.code, plan.qty, plan.from_warehouse, plan.to_warehouse, plan.user, "")
+        move = f"{_n(plan.qty)} {a.uom} of {it.name} from {plan.from_warehouse} to {plan.to_warehouse}"
+        if res["status"] == "refused":
+            return Answer("stock_transfer", f"I could not prepare the transfer of {move}: {res['error']}. Nothing was changed.", items=[it.code], status="clarify")
+        open_it = [{"label": "Open the request", "view": "ok", "approval_id": res["approval_id"]}]
+        facts = _facts([f"Request: move {move}", f"Item: {it.code}"] + (["Held now: " + "; ".join(held)] if held else []))
+        if res["status"] == "waiting":
+            return Answer("stock_transfer", f"A request to move {it.name} between {plan.from_warehouse} and {plan.to_warehouse} is already waiting for your OK. Nothing is moved until you press Create transfer.",
+                          facts, actions=[{**open_it[0], "resend": "1"}], items=[it.code])
+        return Answer("stock_transfer", f"I prepared a request to move {move}. It is waiting for your OK (the request has the buttons Create transfer and Don't move it). Nothing is created in ERPNext "
+                      "until you press Create transfer, and no stock moves until that draft is submitted there.", facts, actions=open_it, items=[it.code],
+                      follow_ups=["What is waiting for my OK?", f"How much {it.code} do we have?"])
+
     def _ask_which(self, candidates: list[ItemInfo], lead: str) -> Answer:
         opts = [f"{i.name} ({i.code})" for i in candidates[:8]]
         text = lead + " Did you mean one of these? " + "; ".join(opts) + "."
@@ -771,6 +888,10 @@ class ChatService:
             u = a.uom
             label, _tone = status_label(a)
             lines = [f"{a.item_name} ({a.item_code}): {_n(a.on_hand)} {u} on hand" + (f", {_n(a.available)} available after {_n(a.reserved)} promised to customers" if a.reserved > 0 else "")]
+            split = where_stock_is(a)
+            where = _where_sentence(a, split)
+            if where:
+                lines.append(where.rstrip("."))
             rate = a.usage.planning_rate if a.usage else 0
             lines.append(f"Selling about {_n(rate, 2)} {u} a day" if rate else "No recent sales, so the daily use is not known")
             if a.cover_days_on_hand is not None:
@@ -785,6 +906,8 @@ class ChatService:
                 lines.append(f"Latest purchase proposal: {PROPOSAL_WORDS.get(p.status, p.status)}" + (f" ({p.po_name})" if p.po_name else "") + (f", vendor {p.supplier_name}" if p.supplier_name else ""))
             facts += _facts_continue(facts, lines)
             sentence = f"{a.item_name} ({a.item_code}): you have {_n(a.on_hand)} {u}" + (f" ({_n(a.available)} available after {_n(a.reserved)} promised to customers)" if a.reserved > 0 else "") + "."
+            if where:
+                sentence += " " + where
             if rate:
                 sentence += f" You sell about {_n(rate, 2)} a day" + (f", so it lasts about {_n(a.cover_days_on_hand)} days" if a.cover_days_on_hand is not None else "") + "."
             else:
@@ -799,7 +922,7 @@ class ChatService:
                 sentence += f" Suggested reorder: about {_n(a.suggested_qty)} {u}."
             parts.append(sentence)
             blocks.append({"type": "kv", "title": f"{a.item_name} ({a.item_code})", "rows": [
-                ["In stock", f"{_n(a.on_hand)} {u}"], ["Selling per day", _n(rate, 2) if rate else "no recent sales"],
+                ["In stock", f"{_n(a.on_hand)} {u}"], *([["Where", _sole_warehouse(a) or "; ".join(split)]] if split else []),["Selling per day", _n(rate, 2) if rate else "no recent sales"],
                 ["Lasts about", f"{_n(a.cover_days_on_hand)} days" if a.cover_days_on_hand is not None else "not known"],
                 ["On order", f"{_n(a.incoming)} {u}" + (f", due {_d(a.next_arrival)}" if a.next_arrival else "") if a.incoming else "nothing"],
                 *([["In transit", f"{_n(a.in_transit)} {u}"]] if a.in_transit else []),
@@ -985,6 +1108,21 @@ class ChatService:
 
 
 # ====================================================================== small helpers
+def _sole_warehouse(a: Any) -> Optional[str]:
+    """The one warehouse that holds all of an item's stock (not a transit warehouse), else None."""
+    holders = [w for w in a.warehouses if w["on_hand"] or w["reserved"]]
+    return holders[0]["warehouse"] if len(holders) == 1 and not holders[0]["in_transit"] else None
+
+
+def _where_sentence(a: Any, split: list[str]) -> str:
+    """Where an item's stock is, as a sentence: "By warehouse: Stores - TTC 120 pcs; Shop floor 40 pcs." or, when one warehouse holds it all, "All of it is in Stores - TTC."
+    Empty when the ERP did not say."""
+    if not split:
+        return ""
+    sole = _sole_warehouse(a)
+    return f"All of it is in {sole}." if sole else "By warehouse: " + "; ".join(split) + "."
+
+
 def _facts_continue(existing: list[Fact], lines: list[str]) -> list[Fact]:
     start = len(existing) + 1
     return [Fact(f"F{i}", t) for i, t in enumerate(lines, start=start)]

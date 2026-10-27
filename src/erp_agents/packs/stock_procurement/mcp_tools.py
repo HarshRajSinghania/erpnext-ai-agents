@@ -17,7 +17,8 @@ INSTRUCTIONS = ("Stock Assistant for ERPNext: stock position, usage, vendor comp
                 "checks, a vendor scorecard, demand forecasts, slow and dead stock, approved substitutes and cycle counts. "
                 "'prepare_order_request' only sends an approval request to the people who approve orders; "
                 "use it only when a person asked for an order, and tell them it still needs their answer. "
-                "'prepare_quote_request' likewise only sends an approval request: no vendor is messaged until a person presses Send requests.")
+                "'prepare_quote_request' likewise only sends an approval request: no vendor is messaged until a person presses Send requests. "
+                "'prepare_stock_transfer' likewise: it asks for stock to be moved between warehouses, and only a person pressing Create transfer makes a draft in ERPNext.")
 
 
 def _d(tool: str, prop: str) -> Any:
@@ -94,3 +95,9 @@ def register(server: MCPServer, run: Any) -> None:
     async def prepare_quote_request(item_code: Annotated[str, _d("prepare_quote_request", "item_code")], reason: Annotated[str, _d("prepare_quote_request", "reason")],
                                     qty: Annotated[Optional[float], _d("prepare_quote_request", "qty")] = None) -> dict[str, Any]:
         return await run("prepare_quote_request", {"item_code": item_code, "qty": qty, "reason": reason})
+
+    @server.tool(name="prepare_stock_transfer", description=SPEC["prepare_stock_transfer"].description, annotations=PREPARES)
+    async def prepare_stock_transfer(item_code: Annotated[str, _d("prepare_stock_transfer", "item_code")], qty: Annotated[float, _d("prepare_stock_transfer", "qty")],
+                                     from_warehouse: Annotated[str, _d("prepare_stock_transfer", "from_warehouse")], to_warehouse: Annotated[str, _d("prepare_stock_transfer", "to_warehouse")],
+                                     reason: Annotated[str, _d("prepare_stock_transfer", "reason")]) -> dict[str, Any]:
+        return await run("prepare_stock_transfer", {"item_code": item_code, "qty": qty, "from_warehouse": from_warehouse, "to_warehouse": to_warehouse, "reason": reason})

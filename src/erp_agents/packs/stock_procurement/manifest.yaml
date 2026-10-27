@@ -10,7 +10,8 @@ enabled_by_default: true
 depends_on: []
 
 # The tools an AI client or an agent may use. The core checks the role on every call, however it arrives (REST, MCP, an agent).
-# No tool orders, approves, pays or changes a setting: the two with an effect only prepare an approval request (an order request, a request to ask vendors for prices).
+# No tool orders, approves, pays, moves stock or changes a setting: the three with an effect only prepare an approval request (an order request, a request to ask vendors for prices,
+# a request to move stock between warehouses).
 tools:
   - {name: stock_overview, role: viewer, effect: read}
   - {name: stock_status, role: viewer, effect: read}
@@ -28,6 +29,7 @@ tools:
   - {name: stock_counts, role: viewer, effect: read}
   - {name: prepare_quote_request, role: approver, effect: prepare}
   - {name: decision_history, role: viewer, effect: read}
+  - {name: prepare_stock_transfer, role: approver, effect: prepare}
 
 # ERPNext roles the pack needs, for the service account and for the people who use it. Accounts Manager only because ERPNext lets nothing else read Tax Rules.
 erp_roles: [Purchase User, Stock User, Accounts User, Accounts Manager]
@@ -58,6 +60,9 @@ erp_permissions:
   - [Item Alternative, read]
   - [Stock Reconciliation, read]
   - [Communication, create]
+  # moving stock between warehouses (a draft only: the assistant never submits it)
+  - [Stock Entry, read]
+  - [Stock Entry, create]
 
 # What a person needs in ERPNext (holding any one is enough): to look at the screens, and to answer requests (approving a purchase order creates one for them).
 erp_look:
@@ -80,6 +85,11 @@ approvals:
     actions: [ack, details]
     role: approver
     description: A warning that the stock check cannot read the ERP.
+  - kind: inventory.transfer
+    actions: [approve, dismiss, details]
+    role: approver
+    description: A request to move stock of one item from one warehouse to another. Create transfer only makes a draft; no stock moves until someone submits it in ERPNext.
+    creates: a draft Stock Entry of type Material Transfer, with the approver recorded
   - kind: procurement.po
     actions: [approve, snooze, dismiss, requisition, change_qty, change_vendor, details]
     role: approver
@@ -145,6 +155,7 @@ sends_to_model:
   - "For the item being discussed: the vendors' names, prices, taxes and duties, delivery times and on-time record."
   - Purchase order and requisition numbers with their vendor, quantities, due dates and status.
   - The text of a question a person typed to the assistant, and the item and quantity of an order request being reviewed.
+  - "Warehouse names with the quantity held in each, and the item, quantity and two warehouses of a stock transfer request being prepared."
   - "Late purchase orders (number, vendor name, due date, quantities still to come) with the stock cover of their items; goods receipt differences (receipt and invoice numbers, quantities, prices, whether the invoice is paid); the vendor scorecard (on-time share, price change, rejected quantities)."
   - "Demand forecasts (seasonal index, quantities due on open sales orders, totals only, no customer named), slow and dead stock with its value, approved alternative items, and cycle count plans and differences."
   - "Past decisions (decision_history): what each request said and why, which button ended it, from which channel, and what came of it; changes of settings. Never who answered or changed it: people are replaced by 'a person'."
