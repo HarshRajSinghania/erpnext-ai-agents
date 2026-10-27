@@ -72,9 +72,12 @@ def test_cli_alert_then_decide_from_the_terminal(cfg_file, capsys):
     main(["--config", cfg_file, "run-once", "--item", "BOLT-M8"])
     capsys.readouterr()
     main(["--config", cfg_file, "approvals", "list"])
-    line = capsys.readouterr().out.strip().splitlines()[-1]
-    approval_id = line.split()[0]
-    assert main(["--config", cfg_file, "approvals", "decide", approval_id, "approve"]) == 0
+    ids = [line.split()[0] for line in capsys.readouterr().out.strip().splitlines()]
+    # The run raises a stock alert (information only: it has no "approve" button) and the reorder request. Timestamps are whole seconds, so the two often share one and which
+    # of them is listed last is not fixed: try each. Pressing a button an alert does not have changes nothing.
+    approved = [i for i in ids if main(["--config", cfg_file, "approvals", "decide", i, "approve"]) == 0]
+    assert len(approved) == 1
+    approval_id = approved[0]
     assert main(["--config", cfg_file, "approvals", "decide", approval_id, "approve"]) == 1     # second time refused
     assert "Already answered" in capsys.readouterr().out
 
