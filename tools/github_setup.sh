@@ -17,4 +17,4 @@ for d in json.load(open(".github/labels.json")):
     subprocess.run(["gh", "label", "create", d["name"], "--repo", repo, "--color", d["color"],
                     "--description", d["description"], "--force"], check=True)
 PY
-echo "Done. Next: create 3 to 5 issues labelled 'good first issue', and pin one Discussion asking what an agent should always ask before acting."
+echo "Done. Next: sh tools/github_issues.sh $REPO (creates the starter issues labelled 'good first issue'), then pin one Discussion asking what an agent should always ask before acting."
